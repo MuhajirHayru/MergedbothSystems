@@ -1,0 +1,74 @@
+# Copilot
+.copilot-specs-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+env/
+ENV/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+*.bak
+*.sqlite3.bak-*
+/media/
+/staticfiles/
+local_settings.py
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+
+# Next.js
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Test artifacts
+.diag/
+.driver-test-temp-*/
+.gp-e2e-run/
+.gp-location-diagnostic/
+.test-registration-private-media/
+greenpath-test-media-*/
+greenpath-test-private-chat-*/
+greenpath-test-private-media-*/
+driverapp-e2e-*.sqlite3
+marketplace-e2e-*.sqlite3
+*.ps1
+
+# Logs and debug
+debug.log
+
+# Temporary OpenCode files
+.claude/
