@@ -4,11 +4,15 @@ import pytest
 from notifications.models import Notification
 from payments.models import (
     Order,
+    OrderPaymentStatus,
     OrderShipmentDetails,
     OrderStatus,
     MarketplaceIntegrationOutbox,
     PaymentRecord,
     PaymentStatus,
+    Wallet,
+    WalletTransaction,
+    WalletTransactionType,
 )
 from products.models import ProductStatus
 from registrations.models import AdministrativeLocation, LocationLevel
@@ -141,6 +145,139 @@ def test_status_transition_requires_a_value(api, wholesaler, order):
     api.force_authenticate(user=wholesaler)
     response = api.patch(f"/api/v1/orders/{order.id}/status/", {}, format="json")
     assert response.status_code == 400
+
+
+def _place_order(api, wholesaler, product, quantity="10"):
+    api.force_authenticate(user=wholesaler)
+    response = api.post(
+        "/api/v1/orders/",
+        {"product": str(product.id), "quantity": quantity},
+        format="json",
+    )
+    assert response.status_code == 201, response.data
+    return Order.objects.get(pk=response.data["order"]["id"])
+
+
+def test_farmer_accepts_pending_order_without_a_second_reservation(
+    api, wholesaler, farmer, farmer_product
+):
+    order = _place_order(api, wholesaler, farmer_product)
+    assert order.payment_status == OrderPaymentStatus.HELD
+    wallet = Wallet.objects.get(user=wholesaler)
+    held_before = wallet.held_balance
+    reservations_before = WalletTransaction.objects.filter(
+        order=order, transaction_type=WalletTransactionType.ORDER_RESERVATION
+    ).count()
+
+    api.force_authenticate(user=farmer)
+    response = api.patch(
+        f"/api/v1/orders/{order.id}/status/", {"status": "Accepted"}, format="json"
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["order"]["status"] == OrderStatus.ACCEPTED
+    assert response.data["order"]["product_unit"] == "kg"
+    assert response.data["order"]["seller_id"] == str(farmer.pk)
+    assert response.data["order"]["buyer_id"] == str(wholesaler.pk)
+
+    wallet.refresh_from_db()
+    assert wallet.held_balance == held_before
+    assert (
+        WalletTransaction.objects.filter(
+            order=order, transaction_type=WalletTransactionType.ORDER_RESERVATION
+        ).count()
+        == reservations_before
+        == 1
+    )
+
+    # A repeated acceptance is refused instead of reserving or charging twice.
+    again = api.patch(
+        f"/api/v1/orders/{order.id}/status/", {"status": "Accepted"}, format="json"
+    )
+    assert again.status_code == 400
+    wallet.refresh_from_db()
+    assert wallet.held_balance == held_before
+
+
+def test_acceptance_is_blocked_when_the_escrow_reservation_is_missing(
+    api, wholesaler, farmer, farmer_product
+):
+    order = _place_order(api, wholesaler, farmer_product)
+    WalletTransaction.objects.filter(
+        order=order, transaction_type=WalletTransactionType.ORDER_RESERVATION
+    ).delete()
+
+    api.force_authenticate(user=farmer)
+    response = api.patch(
+        f"/api/v1/orders/{order.id}/status/", {"status": "Accepted"}, format="json"
+    )
+
+    assert response.status_code == 400
+    assert "payment" in response.data["error"]
+    order.refresh_from_db()
+    assert order.status == OrderStatus.PENDING_SELLER_APPROVAL
+
+
+def test_only_the_seller_can_accept_an_order(api, wholesaler, farmer_product):
+    order = _place_order(api, wholesaler, farmer_product)
+    api.force_authenticate(user=wholesaler)
+
+    response = api.patch(
+        f"/api/v1/orders/{order.id}/status/", {"status": "Accepted"}, format="json"
+    )
+
+    assert response.status_code == 400
+    order.refresh_from_db()
+    assert order.status == OrderStatus.PENDING_SELLER_APPROVAL
+
+
+def test_wholesaler_accepts_an_order_for_its_own_listing(
+    api, retailer, wholesaler, wholesaler_product
+):
+    order = _place_order(api, retailer, wholesaler_product, quantity="4")
+    assert order.wholesaler_id == wholesaler.pk
+    assert order.retailer_id == retailer.pk
+    assert order.seller == wholesaler
+
+    api.force_authenticate(user=wholesaler)
+    response = api.patch(
+        f"/api/v1/orders/{order.id}/status/", {"status": "Accepted"}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    order.refresh_from_db()
+    assert order.status == OrderStatus.ACCEPTED
+
+
+def test_rejection_requires_and_stores_a_reason(
+    api, wholesaler, farmer, farmer_product
+):
+    order = _place_order(api, wholesaler, farmer_product)
+    wallet = Wallet.objects.get(user=wholesaler)
+    available_before = wallet.available_balance
+    api.force_authenticate(user=farmer)
+
+    without_reason = api.patch(
+        f"/api/v1/orders/{order.id}/status/", {"status": "Rejected"}, format="json"
+    )
+    assert without_reason.status_code == 400
+    order.refresh_from_db()
+    assert order.status == OrderStatus.PENDING_SELLER_APPROVAL
+
+    rejected = api.patch(
+        f"/api/v1/orders/{order.id}/status/",
+        {"status": "Rejected", "reason": "The harvest did not pass inspection."},
+        format="json",
+    )
+    assert rejected.status_code == 200, rejected.data
+    order.refresh_from_db()
+    assert order.status == OrderStatus.REJECTED
+    assert order.rejection_reason == "The harvest did not pass inspection."
+    assert order.payment_status == OrderPaymentStatus.REFUNDED
+
+    wallet.refresh_from_db()
+    assert wallet.available_balance == available_before + order.total_amount
+    farmer_product.refresh_from_db()
+    assert float(farmer_product.quantity) == 200
 
 
 def test_counterparty_farmer_can_advance_status(api, farmer, order):

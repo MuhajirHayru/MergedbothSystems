@@ -1,0 +1,366 @@
+from django.urls import path
+
+from .auth_views import (
+    AccountActivationView,
+    CsrfTokenView,
+    CurrentUserView,
+    DriverRegistrationView,
+    LoginView,
+    LogoutView,
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
+)
+from .driver_views import (
+    DriverApplicationView,
+    DriverAvailabilityView,
+    DriverDocumentDownloadView,
+    DriverDocumentUploadView,
+    ReviewerApplicationDecisionView,
+    ReviewerApplicationDetailView,
+    ReviewerApplicationListView,
+    ReviewerDocumentVerificationView,
+    SubmitDriverApplicationView,
+)
+from .shipment_views import (
+    DriverShipmentOfferListView,
+    ShipmentCancelView,
+    ShipmentCollectionView,
+    ShipmentDeliveryConfirmView,
+    ShipmentDeliveryProblemView,
+    ShipmentDetailView,
+    ShipmentDisputeView,
+    ShipmentEvidenceDownloadView,
+    ShipmentEvidenceUploadView,
+    ShipmentExceptionView,
+    ShipmentFeeCounterproposalView,
+    ShipmentFeeProposalCreateView,
+    ShipmentFeeProposalAcceptView,
+    ShipmentFeeProposalRejectView,
+    ShipmentMessageListCreateView,
+    ShipmentNotificationListView,
+    ShipmentNotificationReadView,
+    ShipmentOfferActionView,
+    ShipmentOfferRefreshView,
+    ShipmentRescheduleView,
+    ShipmentStatusView,
+)
+from .marketplace_integration_views import (
+    MarketplaceOrderEventView,
+    MarketplaceShipmentEventsView,
+    MarketplaceV2EventView,
+)
+from .marketplace_account_views import DriverPasswordChangeView
+from .marketplace_bank_views import (
+    DriverBankAccountDetailView,
+    DriverBankAccountListCreateView,
+    DriverPayoutBankListView,
+)
+from .marketplace_profile_views import (
+    DriverProfilePhotoView,
+    DriverProfileView,
+)
+from .marketplace_session_views import (
+    MarketplaceDriverSessionExchangeView,
+    MarketplaceDriverTokenRefreshView,
+)
+from .location_tracking_views import (
+    ShipmentLocationStartView,
+    ShipmentLocationStopView,
+    ShipmentLocationUpdateView,
+    ShipmentLocationView,
+)
+from .assistant_views import (
+    AssistantConversationListView,
+    AssistantMessageListView,
+    AssistantTranscriptionView,
+)
+from .conversation_views import (
+    ConversationListView,
+    ConversationMessageListView,
+    ConversationReadView,
+    ConversationUnreadCountView,
+)
+from .wallet_views import (
+    DriverFeeAgreementListView,
+    DriverPayoutRequestView,
+    DriverWalletView,
+)
+
+
+urlpatterns = [
+    path(
+        "integrations/v2/driver/session/",
+        MarketplaceDriverSessionExchangeView.as_view(),
+        name="marketplace-driver-session-exchange",
+    ),
+    path(
+        "integrations/v2/driver/marketplace-token/",
+        MarketplaceDriverTokenRefreshView.as_view(),
+        name="marketplace-driver-token-refresh",
+    ),
+    path(
+        "integrations/v1/orders/events/",
+        MarketplaceOrderEventView.as_view(),
+        name="marketplace-integration-order-event",
+    ),
+    path(
+        "integrations/v2/events/",
+        MarketplaceV2EventView.as_view(),
+        name="marketplace-integration-v2-event",
+    ),
+    path(
+        "integrations/v1/shipment-events/",
+        MarketplaceShipmentEventsView.as_view(),
+        name="marketplace-integration-shipment-events",
+    ),
+    path(
+        "shipments/<int:shipment_id>/tracking/",
+        ShipmentLocationView.as_view(),
+        name="shipment-location",
+    ),
+    path(
+        "shipments/<int:shipment_id>/tracking/start/",
+        ShipmentLocationStartView.as_view(),
+        name="shipment-location-start",
+    ),
+    path(
+        "shipments/<int:shipment_id>/tracking/location/",
+        ShipmentLocationUpdateView.as_view(),
+        name="shipment-location-update",
+    ),
+    path(
+        "shipments/<int:shipment_id>/tracking/stop/",
+        ShipmentLocationStopView.as_view(),
+        name="shipment-location-stop",
+    ),
+    path("auth/csrf/", CsrfTokenView.as_view(), name="auth-csrf"),
+    path("auth/register/", DriverRegistrationView.as_view(), name="auth-register"),
+    path("auth/activate/", AccountActivationView.as_view(), name="auth-activate"),
+    path("auth/login/", LoginView.as_view(), name="auth-login"),
+    path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
+    path("auth/me/", CurrentUserView.as_view(), name="auth-me"),
+    path("auth/profile/", DriverProfileView.as_view(), name="auth-profile"),
+    path(
+        "auth/profile/photo/",
+        DriverProfilePhotoView.as_view(),
+        name="auth-profile-photo",
+    ),
+    path(
+        "auth/password/change/",
+        DriverPasswordChangeView.as_view(),
+        name="auth-password-change",
+    ),
+    path(
+        "auth/password-reset/",
+        PasswordResetRequestView.as_view(),
+        name="auth-password-reset",
+    ),
+    path(
+        "auth/password-reset/confirm/",
+        PasswordResetConfirmView.as_view(),
+        name="auth-password-reset-confirm",
+    ),
+    path(
+        "drivers/me/application/",
+        DriverApplicationView.as_view(),
+        name="driver-application",
+    ),
+    path(
+        "drivers/me/availability/",
+        DriverAvailabilityView.as_view(),
+        name="driver-availability",
+    ),
+    path(
+        "drivers/me/application/submit/",
+        SubmitDriverApplicationView.as_view(),
+        name="driver-application-submit",
+    ),
+    path(
+        "drivers/me/application/documents/",
+        DriverDocumentUploadView.as_view(),
+        name="driver-document-upload",
+    ),
+    path(
+        "driver-documents/<int:document_id>/download/",
+        DriverDocumentDownloadView.as_view(),
+        name="driver-document-download",
+    ),
+    path(
+        "admin/driver-applications/",
+        ReviewerApplicationListView.as_view(),
+        name="driver-application-review-list",
+    ),
+    path(
+        "admin/driver-applications/<int:application_id>/",
+        ReviewerApplicationDetailView.as_view(),
+        name="driver-application-review-detail",
+    ),
+    path(
+        "admin/driver-applications/<int:application_id>/review/",
+        ReviewerApplicationDecisionView.as_view(),
+        name="driver-application-review",
+    ),
+    path(
+        "admin/driver-documents/<int:document_id>/verify/",
+        ReviewerDocumentVerificationView.as_view(),
+        name="driver-document-verify",
+    ),
+    path("shipments/", ShipmentCollectionView.as_view(), name="shipment-list-create"),
+    path(
+        "shipments/<int:shipment_id>/",
+        ShipmentDetailView.as_view(),
+        name="shipment-detail",
+    ),
+    path(
+        "drivers/me/shipment-offers/",
+        DriverShipmentOfferListView.as_view(),
+        name="driver-shipment-offers",
+    ),
+    path(
+        "shipments/<int:shipment_id>/offers/refresh/",
+        ShipmentOfferRefreshView.as_view(),
+        name="shipment-offers-refresh",
+    ),
+    path(
+        "shipments/<int:shipment_id>/offers/<int:offer_id>/fee-counterproposal/",
+        ShipmentFeeCounterproposalView.as_view(),
+        name="shipment-fee-counterproposal",
+    ),
+    path(
+        "shipments/<int:shipment_id>/offers/<int:offer_id>/<str:action>/",
+        ShipmentOfferActionView.as_view(),
+        name="shipment-offer-action",
+    ),
+    path(
+        "shipments/<int:shipment_id>/fee-proposals/",
+        ShipmentFeeProposalCreateView.as_view(),
+        name="shipment-fee-proposal-create",
+    ),
+    path(
+        "shipments/<int:shipment_id>/fee-proposals/<int:proposal_id>/accept/",
+        ShipmentFeeProposalAcceptView.as_view(),
+        name="shipment-fee-proposal-accept",
+    ),
+    path(
+        "shipments/<int:shipment_id>/fee-proposals/<int:proposal_id>/reject/",
+        ShipmentFeeProposalRejectView.as_view(),
+        name="shipment-fee-proposal-reject",
+    ),
+    path(
+        "shipments/<int:shipment_id>/status/",
+        ShipmentStatusView.as_view(),
+        name="shipment-status",
+    ),
+    path(
+        "shipments/<int:shipment_id>/evidence/",
+        ShipmentEvidenceUploadView.as_view(),
+        name="shipment-evidence-upload",
+    ),
+    path(
+        "shipments/<int:shipment_id>/evidence/<int:evidence_id>/",
+        ShipmentEvidenceDownloadView.as_view(),
+        name="shipment-evidence-download",
+    ),
+    path(
+        "shipments/<int:shipment_id>/confirm-delivery/",
+        ShipmentDeliveryConfirmView.as_view(),
+        name="shipment-confirm-delivery",
+    ),
+    path(
+        "shipments/<int:shipment_id>/delivery-problem/",
+        ShipmentDeliveryProblemView.as_view(),
+        name="shipment-delivery-problem",
+    ),
+    path(
+        "shipments/<int:shipment_id>/reschedule/",
+        ShipmentRescheduleView.as_view(),
+        name="shipment-reschedule",
+    ),
+    path(
+        "shipments/<int:shipment_id>/cancel/",
+        ShipmentCancelView.as_view(),
+        name="shipment-cancel",
+    ),
+    path(
+        "shipments/<int:shipment_id>/dispute/",
+        ShipmentDisputeView.as_view(),
+        name="shipment-dispute",
+    ),
+    path(
+        "shipments/<int:shipment_id>/exceptions/",
+        ShipmentExceptionView.as_view(),
+        name="shipment-exceptions",
+    ),
+    path(
+        "shipments/<int:shipment_id>/messages/",
+        ShipmentMessageListCreateView.as_view(),
+        name="shipment-messages",
+    ),
+    path(
+        "shipments/notifications/",
+        ShipmentNotificationListView.as_view(),
+        name="shipment-notifications",
+    ),
+    path(
+        "shipments/notifications/<int:notification_id>/read/",
+        ShipmentNotificationReadView.as_view(),
+        name="shipment-notification-read",
+    ),
+    path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path(
+        "conversations/unread/",
+        ConversationUnreadCountView.as_view(),
+        name="conversation-unread-count",
+    ),
+    path(
+        "conversations/<int:shipment_id>/messages/",
+        ConversationMessageListView.as_view(),
+        name="conversation-messages",
+    ),
+    path(
+        "conversations/<int:shipment_id>/read/",
+        ConversationReadView.as_view(),
+        name="conversation-read",
+    ),
+    path("wallet/", DriverWalletView.as_view(), name="driver-wallet"),
+    path(
+        "wallet/banks/",
+        DriverPayoutBankListView.as_view(),
+        name="driver-payout-banks",
+    ),
+    path(
+        "wallet/bank-accounts/",
+        DriverBankAccountListCreateView.as_view(),
+        name="driver-bank-accounts",
+    ),
+    path(
+        "wallet/bank-accounts/<uuid:account_id>/",
+        DriverBankAccountDetailView.as_view(),
+        name="driver-bank-account-detail",
+    ),
+    path(
+        "wallet/fee-agreements/",
+        DriverFeeAgreementListView.as_view(),
+        name="driver-fee-agreements",
+    ),
+    path(
+        "wallet/payouts/",
+        DriverPayoutRequestView.as_view(),
+        name="driver-payout-request",
+    ),
+    path(
+        "assistant/conversations/",
+        AssistantConversationListView.as_view(),
+        name="assistant-conversation-list",
+    ),
+    path(
+        "assistant/conversations/<int:conversation_id>/messages/",
+        AssistantMessageListView.as_view(),
+        name="assistant-message-list",
+    ),
+    path(
+        "assistant/transcribe/",
+        AssistantTranscriptionView.as_view(),
+        name="assistant-transcribe",
+    ),
+]

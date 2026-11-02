@@ -864,7 +864,8 @@ class RegistrationDocumentUploadSerializer(serializers.Serializer):
                 if image.format not in ("JPEG", "PNG"):
                     raise serializers.ValidationError("Upload a valid JPEG or PNG image.")
                 image.verify()
-            except (UnidentifiedImageError, OSError, ValueError):
+            except (UnidentifiedImageError, OSError, ValueError, SyntaxError):
+                # PIL raises bare SyntaxError for a corrupt PNG checksum.
                 raise serializers.ValidationError("Upload a valid JPEG or PNG image.")
             finally:
                 value.seek(0)

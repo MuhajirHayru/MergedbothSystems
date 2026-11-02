@@ -1,12 +1,16 @@
 """Atomic wallet movements for manually verified funding and escrow."""
 
 import secrets
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 
 from users.models import AuditLog
 
+from .chapa import initiate_payout_transfer
+from .financial_models import FinancialJournalEntry
+from .financial_services import post_journal_entry
 from .models import (
     AgreementStatus,
     BusinessAgreement,
@@ -76,6 +80,16 @@ def credit_driver_delivery_fee(agreement, financial_manager):
             f"(driver shipment {agreement.driver_shipment_id})"
         ),
     )
+    if not FinancialJournalEntry.objects.filter(idempotency_key=f"driver-fee:{agreement.pk}").exists():
+        post_journal_entry(
+            reference=f"driver-fee:{agreement.pk}", category="DELIVERY_FEE_EARNING",
+            amount=amount, currency=agreement.currency,
+            debit_code="EXPENSE:DELIVERY", debit_name="Delivery fee expense", debit_category="EXPENSE",
+            credit_code="LIABILITY:DRIVER_WALLET", credit_name="Driver wallet liability", credit_category="LIABILITY",
+            source="DELIVERY_FEE_AGREEMENT", source_reference=str(agreement.pk), actor=financial_manager,
+            description=f"Approved marketplace delivery fee for order {agreement.order.reference}",
+            related_user=agreement.driver_payee,
+        )
     AuditLog.objects.create(
         actor=financial_manager,
         action="driver_delivery_fee_credited",
@@ -137,6 +151,14 @@ def reserve_order_funds(order, actor):
         actor=actor,
         description=f"Escrow held for order {order.reference}",
     )
+    post_journal_entry(
+        reference=f"order-reservation:{order.pk}", category="ORDER_RESERVATION",
+        amount=amount, currency=wallet.currency,
+        debit_code="LIABILITY:BUYER_WALLET", debit_name="Buyer wallet liability", debit_category="LIABILITY",
+        credit_code="LIABILITY:BUYER_ESCROW", credit_name="Buyer escrow liability", credit_category="LIABILITY",
+        source="ORDER_RESERVATION", source_reference=order.reference, actor=actor,
+        description=f"Held buyer funds in escrow for order {order.reference}",
+    )
     order.payment_status = OrderPaymentStatus.HELD
     order.save(update_fields=["payment_status", "updated_at"])
 
@@ -163,6 +185,15 @@ def release_order_reservation(order, actor, *, transaction_type, description):
     )
     order.payment_status = OrderPaymentStatus.REFUNDED
     order.save(update_fields=["payment_status", "updated_at"])
+    key = f"order-refund:{order.pk}"
+    if not FinancialJournalEntry.objects.filter(idempotency_key=key).exists():
+        post_journal_entry(
+            reference=key, category="ORDER_REFUND", amount=amount, currency=wallet.currency,
+            debit_code="LIABILITY:BUYER_ESCROW", debit_name="Buyer escrow liability", debit_category="LIABILITY",
+            credit_code="LIABILITY:BUYER_WALLET", credit_name="Buyer wallet liability", credit_category="LIABILITY",
+            source="ORDER_REFUND", source_reference=order.reference, actor=actor,
+            description=description,
+        )
     from .integration import enqueue_payment_snapshot
 
     enqueue_payment_snapshot(order.pk, actor)
@@ -190,8 +221,6 @@ def release_escrow(order, financial_manager, external_reference=""):
     seller_wallet = wallet_for(locked_order.seller, lock=True)
     buyer_wallet.held_balance -= amount
     buyer_wallet.save(update_fields=["held_balance", "updated_at"])
-    seller_wallet.available_balance += amount
-    seller_wallet.save(update_fields=["available_balance", "updated_at"])
 
     WalletTransaction.objects.create(
         wallet=buyer_wallet,
@@ -204,20 +233,32 @@ def release_escrow(order, financial_manager, external_reference=""):
         actor=financial_manager,
         description=f"Escrow released for order {locked_order.reference}",
     )
-    WalletTransaction.objects.create(
-        wallet=seller_wallet,
-        order=locked_order,
-        transaction_type=WalletTransactionType.ESCROW_RELEASE,
-        amount=amount,
-        available_delta=amount,
-        reference=transaction_reference("ESCROW-IN"),
-        external_reference=external_reference,
-        actor=financial_manager,
-        description=f"Escrow received for order {locked_order.reference}",
-    )
+    if not FinancialJournalEntry.objects.filter(idempotency_key=f"escrow-release:{locked_order.pk}").exists():
+        post_journal_entry(
+            reference=f"escrow-release:{locked_order.pk}", category="ESCROW_RELEASE",
+            amount=amount, currency=buyer_wallet.currency,
+            debit_code="LIABILITY:BUYER_ESCROW", debit_name="Buyer escrow liability", debit_category="LIABILITY",
+            credit_code="LIABILITY:SELLER_WALLET", credit_name="Seller wallet liability", credit_category="LIABILITY",
+            source="ORDER_ESCROW", source_reference=locked_order.reference, actor=financial_manager,
+            description=f"Escrow released to seller for order {locked_order.reference}", related_user=locked_order.seller,
+        )
     locked_order.payment_status = OrderPaymentStatus.RELEASED
     locked_order.status = OrderStatus.COMPLETED
     locked_order.save(update_fields=["payment_status", "status", "updated_at"])
+    from .financial_services import post_completed_order
+    snapshot = post_completed_order(locked_order, actor=financial_manager)
+    seller_proceeds = snapshot.seller_proceeds
+    if seller_proceeds > 0:
+        seller_wallet.available_balance += seller_proceeds
+        seller_wallet.save(update_fields=["available_balance", "updated_at"])
+        WalletTransaction.objects.create(
+            wallet=seller_wallet, order=locked_order,
+            transaction_type=WalletTransactionType.ESCROW_RELEASE,
+            amount=seller_proceeds, available_delta=seller_proceeds,
+            reference=transaction_reference("ESCROW-IN"),
+            external_reference=external_reference, actor=financial_manager,
+            description=f"Seller proceeds for order {locked_order.reference}",
+        )
     BusinessAgreement.objects.filter(order=locked_order).update(
         status=AgreementStatus.COMPLETED,
         completed_at=timezone.now(),
@@ -235,13 +276,63 @@ def release_escrow(order, financial_manager, external_reference=""):
 
 
 @transaction.atomic
-def review_funding_request(request_id, financial_manager, *, approve, notes=""):
-    funding = WalletFundingRequest.objects.select_for_update().select_related(
-        "wallet__user"
-    ).get(pk=request_id)
+def flag_funding_request(request_id, financial_manager, *, reason):
+    """Mark a deposit for investigation without crediting or rejecting it.
+
+    Flagging is deliberately *not* a rejection: the wallet balance and ledger
+    are untouched, the request stays reviewable, and the flag is recorded on
+    the request plus the audit trail so a Financial Manager can resolve it
+    later with ``review_funding_request``.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"reason": "Provide a reason when flagging a deposit."})
+    try:
+        funding = WalletFundingRequest.objects.select_for_update().select_related(
+            "wallet__user"
+        ).get(pk=request_id)
+    except (WalletFundingRequest.DoesNotExist, ValueError, TypeError):
+        raise NotFound("Funding request not found.")
     if funding.status not in (
         FundingStatus.PENDING,
         FundingStatus.AWAITING_APPROVAL,
+    ):
+        raise ValidationError(
+            {"status": "Only deposits awaiting verification can be flagged."}
+        )
+    previous_status = funding.status
+    funding.status = FundingStatus.FLAGGED
+    funding.reviewed_at = timezone.now()
+    funding.reviewed_by = financial_manager
+    funding.review_notes = reason
+    funding.save(
+        update_fields=["status", "reviewed_at", "reviewed_by", "review_notes"]
+    )
+    AuditLog.objects.create(
+        actor=financial_manager,
+        action="wallet_funding_flagged",
+        target=str(funding.pk),
+        detail=(
+            f"Status: {previous_status} -> {funding.status}; "
+            f"amount: {funding.amount:.2f} ETB; "
+            f"external reference: {funding.external_reference}; reason: {reason}"
+        ),
+    )
+    return funding
+
+
+@transaction.atomic
+def review_funding_request(request_id, financial_manager, *, approve, notes=""):
+    try:
+        funding = WalletFundingRequest.objects.select_for_update().select_related(
+            "wallet__user"
+        ).get(pk=request_id)
+    except (WalletFundingRequest.DoesNotExist, ValueError, TypeError):
+        raise NotFound("Funding request not found.")
+    if funding.status not in (
+        FundingStatus.PENDING,
+        FundingStatus.AWAITING_APPROVAL,
+        FundingStatus.FLAGGED,
     ):
         raise ValidationError({"status": "This funding request has already been reviewed."})
     if funding.payment_method == "Chapa" and approve:
@@ -281,6 +372,19 @@ def review_funding_request(request_id, financial_manager, *, approve, notes=""):
                 else "Manually verified wallet funding"
             ),
         )
+        clearing_code = "ASSET:CHAPA_CLEARING" if funding.payment_method == "Chapa" else "ASSET:MANUAL_CLEARING"
+        clearing_name = "Chapa clearing" if funding.payment_method == "Chapa" else "Manual funding clearing"
+        post_journal_entry(
+            reference=f"wallet-funding:{funding.pk}",
+            category="WALLET_DEPOSIT",
+            amount=funding.verified_amount if funding.payment_method == "Chapa" else funding.amount,
+            currency=wallet.currency,
+            debit_code=clearing_code, debit_name=clearing_name, debit_category="ASSET",
+            credit_code="LIABILITY:USER_WALLET", credit_name="User wallet liability", credit_category="LIABILITY",
+            source="CHAPA_FUNDING" if funding.payment_method == "Chapa" else "MANUAL_FUNDING",
+            source_reference=funding.external_reference, actor=financial_manager,
+            description="Verified wallet deposit; not platform revenue.",
+        )
     else:
         funding.status = FundingStatus.REJECTED
     funding.save(
@@ -305,9 +409,12 @@ def review_funding_request(request_id, financial_manager, *, approve, notes=""):
 def review_payout_request(
     request_id, financial_manager, *, approve, external_reference="", notes=""
 ):
-    payout = WalletPayoutRequest.objects.select_for_update().select_related(
-        "wallet__user"
-    ).get(pk=request_id)
+    try:
+        payout = WalletPayoutRequest.objects.select_for_update().select_related(
+            "wallet__user", "payout_account__bank"
+        ).get(pk=request_id)
+    except (WalletPayoutRequest.DoesNotExist, ValueError, TypeError):
+        raise NotFound("Payout request not found.")
     if payout.status != PayoutStatus.PENDING:
         raise ValidationError({"status": "This payout request has already been reviewed."})
     previous_status = payout.status
@@ -320,10 +427,31 @@ def review_payout_request(
         raise ValidationError({"wallet": "Held payout funds are not available."})
     if approve:
         external_reference = external_reference.strip()
-        if not external_reference:
-            raise ValidationError(
-                {"external_reference": "Enter the verified bank or transfer reference."}
-            )
+        notes = notes.strip()
+        automatic_transfer = bool(
+            payout.payout_account_id
+            and not external_reference
+            and settings.CHAPA_TEST_MODE
+            and settings.CHAPA_SECRET_KEY.startswith("CHASECK_TEST-")
+        )
+        if automatic_transfer:
+            external_reference = initiate_payout_transfer(payout)
+            if not notes:
+                notes = "Approved and disbursed through the Chapa sandbox transfer rail."
+        else:
+            if not external_reference:
+                raise ValidationError(
+                    {"external_reference": "Enter the verified bank or transfer reference."}
+                )
+            if not notes:
+                raise ValidationError(
+                    {
+                        "notes": (
+                            "Record the external confirmation evidence checked before "
+                            "marking this payout paid."
+                        )
+                    }
+                )
         wallet.held_balance -= payout.amount
         wallet.save(update_fields=["held_balance", "updated_at"])
         payout.status = PayoutStatus.PAID
@@ -336,7 +464,11 @@ def review_payout_request(
             reference=f"PAYOUT-{payout.pk}",
             external_reference=external_reference,
             actor=financial_manager,
-            description="Manually settled wallet payout",
+            description=(
+                "Chapa sandbox payout disbursed after financial approval"
+                if automatic_transfer
+                else "Manually settled wallet payout"
+            ),
         )
     else:
         wallet.held_balance -= payout.amount
@@ -354,6 +486,16 @@ def review_payout_request(
             reference=f"PAYOUT-RETURN-{payout.pk}",
             actor=financial_manager,
             description="Rejected payout returned to available balance",
+        )
+    if approve:
+        post_journal_entry(
+            reference=f"payout:{payout.pk}", category="PAYOUT_DISBURSEMENT",
+            amount=payout.amount, currency=wallet.currency,
+            debit_code="LIABILITY:USER_WALLET", debit_name="User wallet liability", debit_category="LIABILITY",
+            credit_code="ASSET:SETTLEMENT_CLEARING", credit_name="Settlement clearing", credit_category="ASSET",
+            source="WALLET_PAYOUT", source_reference=external_reference, actor=financial_manager,
+            description="Verified wallet payout settlement; not an expense.",
+            related_user=wallet.user,
         )
     payout.reviewed_at = timezone.now()
     payout.reviewed_by = financial_manager

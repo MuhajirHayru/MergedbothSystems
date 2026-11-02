@@ -21,6 +21,7 @@ from .access import (
     can_access_channel,
     can_communicate,
     can_moderate_voice,
+    eligible_recipients,
     eligible_staff_recipients,
     related_user_admin_ids,
 )
@@ -200,6 +201,47 @@ class StaffRecipientsView(APIView):
                 ]
             }
         )
+
+
+class ChatRecipientsView(APIView):
+    """GET /api/v1/chat/recipients/ — every permitted conversation partner.
+
+    The backend decides the set from role, administrative scope and existing
+    order relationships. Only display-safe identity fields are returned; phone
+    numbers, email addresses and addresses never appear here.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        recipients = eligible_recipients(
+            request.user, request.query_params.get("search", "")
+        )
+        results = []
+        for user in recipients:
+            scope = getattr(user, "administrative_scope", None)
+            if scope is not None and scope.level == "GLOBAL":
+                scope_label = "Nationwide"
+            elif scope is not None and scope.location_id:
+                scope_label = str(scope.location)
+            else:
+                registration = getattr(user, "registration", None)
+                scope_label = (
+                    str(registration.location)
+                    if registration is not None and registration.location_id
+                    else user.location
+                )
+            results.append(
+                {
+                    "id": str(user.pk),
+                    "full_name": user.full_name,
+                    "role": user.role,
+                    "role_display": user.get_role_display(),
+                    "location": user.location,
+                    "scope": scope_label,
+                }
+            )
+        return Response({"results": results})
 
 
 class ChannelMessagesViewSet(

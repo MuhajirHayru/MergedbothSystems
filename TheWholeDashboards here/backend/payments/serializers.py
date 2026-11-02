@@ -216,6 +216,13 @@ class OrderSerializer(serializers.ModelSerializer):
     )
     seller_is_online = serializers.BooleanField(source="seller.is_online", read_only=True)
     product_title = serializers.CharField(source="product.title", read_only=True)
+    product_image = serializers.SerializerMethodField()
+    product_unit = serializers.CharField(
+        source="product.unit_of_measure", read_only=True
+    )
+    seller_id = serializers.SerializerMethodField()
+    buyer_id = serializers.SerializerMethodField()
+    shipment = serializers.SerializerMethodField()
     date = serializers.DateTimeField(source="created_at", read_only=True, format="%b %d, %Y")
     total = serializers.SerializerMethodField()
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -240,11 +247,13 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "reference", "wholesaler", "wholesaler_name", "farmer",
             "farmer_name", "retailer", "retailer_name", "buyer_name", "seller_name",
             "buyer_financially_verified", "seller_is_online",
-            "product", "product_title", "quantity",
+            "product", "product_title", "product_image", "product_unit",
+            "seller_id", "buyer_id", "quantity",
             "total_amount", "total", "status", "status_display",
             "payment_status", "payment_status_display", "delivery_information",
-            "counterparty_contact",
+            "counterparty_contact", "shipment",
             "delivered_at", "quality_confirmed_at", "dispute_reason",
+            "rejection_reason",
             "agreement_status", "allowed_transitions", "date", "created_at",
             "updated_at",
         ]
@@ -376,6 +385,41 @@ class OrderSerializer(serializers.ModelSerializer):
             return []
         return allowed if user in (obj.buyer, obj.seller) else []
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_product_image(self, obj):
+        images = obj.product.images if isinstance(obj.product.images, list) else []
+        first = images[0] if images else None
+        if isinstance(first, str) and first.strip():
+            return first
+        return None
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_shipment(self, obj):
+        details = getattr(obj, "shipment_details", None)
+        if details is None:
+            return None
+        return {
+            "authorized": bool(
+                details.authorized_at is not None and details.closed_at is None
+            ),
+            "delivery_fee": (
+                str(details.delivery_fee_proposal_amount)
+                if details.delivery_fee_proposal_amount is not None
+                else None
+            ),
+            "currency": details.delivery_fee_proposal_currency,
+            "driver_shipment_id": details.driver_shipment_id,
+            "driver_status": details.driver_shipment_status,
+        }
+
+    @extend_schema_field(serializers.CharField())
+    def get_seller_id(self, obj):
+        return str(obj.seller.pk)
+
+    @extend_schema_field(serializers.CharField())
+    def get_buyer_id(self, obj):
+        return str(obj.buyer.pk)
+
     @extend_schema_field(serializers.CharField())
     def get_buyer_name(self, obj):
         return obj.buyer.full_name
@@ -393,6 +437,86 @@ class OrderSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("Quantity must be greater than zero.")
         return value
+
+
+class BuyerShipmentSerializer(serializers.ModelSerializer):
+    """Read-only shipment summary for the buyer's logistics tracking screens.
+
+    Exposes the order reference, route names and DriverApp hand-off state that
+    the marketplace UI needs. Contact details stay behind the order disclosure
+    endpoint, so no phone number or precise address leaves this serializer.
+    """
+
+    order = serializers.SerializerMethodField()
+    delivery_fee = serializers.DecimalField(
+        source="delivery_fee_proposal_amount",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+    )
+    currency = serializers.CharField(
+        source="delivery_fee_proposal_currency", read_only=True
+    )
+    pickup_region_name = serializers.CharField(
+        source="pickup_region.name", read_only=True
+    )
+    pickup_zone_name = serializers.CharField(
+        source="pickup_zone.name", read_only=True, allow_null=True
+    )
+    pickup_wereda_name = serializers.CharField(
+        source="pickup_wereda.name", read_only=True, allow_null=True
+    )
+    destination_region_name = serializers.CharField(
+        source="destination_region.name", read_only=True
+    )
+    destination_zone_name = serializers.CharField(
+        source="destination_zone.name", read_only=True, allow_null=True
+    )
+    destination_wereda_name = serializers.CharField(
+        source="destination_wereda.name", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = OrderShipmentDetails
+        fields = [
+            "id",
+            "order",
+            "driver_shipment_id",
+            "driver_shipment_status",
+            "driver_last_event_at",
+            "pickup_region_name",
+            "pickup_zone_name",
+            "pickup_wereda_name",
+            "pickup_address_line",
+            "destination_region_name",
+            "destination_zone_name",
+            "destination_wereda_name",
+            "destination_address_line",
+            "cargo_weight_kg",
+            "packaging_details",
+            "delivery_fee",
+            "currency",
+            "authorized_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.DictField)
+    def get_order(self, obj):
+        order = obj.order
+        seller = order.seller
+        return {
+            "id": str(order.id),
+            "reference": order.reference,
+            "status": order.status,
+            "status_display": order.get_status_display(),
+            "created_at": order.created_at,
+            "seller": {
+                "id": str(seller.id) if seller else None,
+                "full_name": seller.full_name if seller else "",
+            },
+        }
 
 
 class OrderShipmentDetailsSerializer(serializers.ModelSerializer):
@@ -756,6 +880,18 @@ class FundingReviewDecisionSerializer(serializers.Serializer):
         return attrs
 
 
+class FundingFlagSerializer(serializers.Serializer):
+    """Flag a deposit for investigation. Never rejects or credits the wallet."""
+
+    reason = serializers.CharField(max_length=500)
+
+    def validate_reason(self, value):
+        reason = value.strip()
+        if not reason:
+            raise serializers.ValidationError("Provide a reason when flagging a deposit.")
+        return reason
+
+
 class PayoutReviewDecisionSerializer(serializers.Serializer):
     approve = serializers.BooleanField()
     external_reference = serializers.CharField(
@@ -767,23 +903,5 @@ class PayoutReviewDecisionSerializer(serializers.Serializer):
         if not attrs["approve"] and not attrs["notes"].strip():
             raise serializers.ValidationError(
                 {"notes": "Provide a reason when rejecting the payout."}
-            )
-        if attrs["approve"] and not attrs["external_reference"].strip():
-            raise serializers.ValidationError(
-                {
-                    "external_reference": (
-                        "Enter the verified bank or transfer reference after "
-                        "confirming the external payment."
-                    )
-                }
-            )
-        if attrs["approve"] and not attrs["notes"].strip():
-            raise serializers.ValidationError(
-                {
-                    "notes": (
-                        "Record the external confirmation evidence checked before "
-                        "marking this payout paid."
-                    )
-                }
             )
         return attrs

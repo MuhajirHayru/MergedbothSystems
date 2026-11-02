@@ -72,6 +72,20 @@ def _user_admin_scopes_related(actor, other):
     return actor_scope.location_id in other_subtree
 
 
+MARKETPLACE_ROLES = (
+    Role.FARMER,
+    Role.WHOLESALER,
+    Role.RETAILER,
+)
+
+
+def _marketplace_user_in_admin_scope(admin, member):
+    """Fail closed when an administrator has no usable geographic scope."""
+    from registrations.services import users_visible_to_admin
+
+    return users_visible_to_admin(admin, User.objects.filter(pk=member.pk)).exists()
+
+
 def can_communicate(actor, other):
     """Return whether the actor may open or access a conversation with a user."""
     if not actor or not other or actor.pk == other.pk:
@@ -80,7 +94,78 @@ def can_communicate(actor, other):
         return False
     if actor.role == Role.USER_ADMIN and other.role == Role.USER_ADMIN:
         return _user_admin_scopes_related(actor, other)
+    # An administrator may only reach marketplace users whose registration sits
+    # inside their own geographic scope (and the reverse direction too). This
+    # keeps messaging aligned with the user-management boundary instead of
+    # granting every staff account a system-wide directory.
+    if actor.role == Role.USER_ADMIN and other.role in MARKETPLACE_ROLES:
+        return _marketplace_user_in_admin_scope(actor, other)
+    if other.role == Role.USER_ADMIN and actor.role in MARKETPLACE_ROLES:
+        return _marketplace_user_in_admin_scope(other, actor)
     return True
+
+
+def eligible_recipients(actor, search=""):
+    """Every user the authenticated account may start a conversation with.
+
+    Staff get their permitted colleagues plus (for administrators) the
+    marketplace users inside their geographic scope. Commercial accounts get
+    the counterparties of their existing orders; drivers have no authorised
+    counterparty model yet and therefore receive an empty, honest list.
+    """
+    from payments.models import Order
+
+    search = (search or "").strip()
+    candidates = User.objects.filter(
+        status=AccountStatus.APPROVED, is_active=True
+    ).exclude(pk=actor.pk)
+
+    if actor.role == Role.SUPER_ADMIN:
+        pass
+    elif actor.role == Role.USER_ADMIN:
+        from registrations.services import users_visible_to_admin
+
+        permitted_ids = {user.pk for user in eligible_staff_recipients(actor)}
+        permitted_ids.update(
+            users_visible_to_admin(
+                actor,
+                candidates.filter(
+                    role__in=(Role.FARMER, Role.WHOLESALER, Role.RETAILER)
+                ),
+            ).values_list("pk", flat=True)
+        )
+        candidates = candidates.filter(pk__in=permitted_ids)
+    elif actor.role == Role.FINANCIAL_MANAGER:
+        candidates = candidates.filter(
+            role__in=(Role.USER_ADMIN, Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN)
+        )
+    elif actor.role in MARKETPLACE_ROLES:
+        order_ids = Order.objects.filter(
+            Q(wholesaler=actor) | Q(farmer=actor) | Q(retailer=actor)
+        ).values_list("wholesaler_id", "farmer_id", "retailer_id")
+        permitted_ids = {value for row in order_ids for value in row if value}
+        candidates = candidates.filter(pk__in=permitted_ids)
+    else:
+        candidates = candidates.none()
+
+    if search:
+        candidates = candidates.filter(
+            Q(full_name__icontains=search)
+            | Q(role__icontains=search)
+            | Q(location__icontains=search)
+        )
+
+    candidates = candidates.select_related(
+        "administrative_scope__location", "registration__location"
+    ).order_by("full_name", "pk")
+    # A one-to-one thread only works when both sides can read and reply, so a
+    # recipient the actor cannot hear back from (for example a driver until
+    # driver messaging is authorised) is not offered.
+    return [
+        candidate
+        for candidate in candidates
+        if can_communicate(actor, candidate) and can_communicate(candidate, actor)
+    ]
 
 
 def related_user_admin_ids(actor):
@@ -138,9 +223,16 @@ def eligible_staff_recipients(actor, search=""):
             | Q(location__icontains=search)
         )
     candidates = candidates.select_related(
-        "administrative_scope__location"
+        "administrative_scope__location", "registration__location"
     ).order_by("full_name", "pk")
-    return [candidate for candidate in candidates if can_communicate(actor, candidate)]
+    # A one-to-one thread only works when both sides can read and reply, so a
+    # recipient the actor cannot hear back from (for example a driver until
+    # driver messaging is authorised) is not offered.
+    return [
+        candidate
+        for candidate in candidates
+        if can_communicate(actor, candidate) and can_communicate(candidate, actor)
+    ]
 
 
 def can_access_channel(actor, channel):

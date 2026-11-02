@@ -45,6 +45,7 @@ from .models import (
 )
 from .serializers import (
     BusinessAgreementSerializer,
+    FundingFlagSerializer,
     FundingReviewDecisionSerializer,
     OrderSerializer,
     OrderShipmentDetailsSerializer,
@@ -57,6 +58,7 @@ from .serializers import (
     WalletTransactionSerializer,
 )
 from .wallet_services import (
+    flag_funding_request,
     payout_reservation_is_active,
     release_escrow,
     release_order_reservation,
@@ -321,7 +323,7 @@ class OrderViewSet(
     def get_queryset(self):
         user = self.request.user
         qs = Order.objects.select_related(
-            "wholesaler", "farmer", "retailer", "product"
+            "wholesaler", "farmer", "retailer", "product", "shipment_details"
         ).prefetch_related("agreement")
         if user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN, Role.USER_ADMIN):
             if user.role == Role.USER_ADMIN:
@@ -600,6 +602,9 @@ class OrderViewSet(
                 detail=f"Shipment details revision {revision} confirmed.",
             )
             enqueue_order_authorization(order.pk, request.user)
+            # The enqueue step authorizes the shipment on a separately locked
+            # instance, so re-read it for an accurate response (and accurate UI).
+            details.refresh_from_db()
         return Response(self._shipment_details_response(details))
 
     @staticmethod
@@ -631,6 +636,13 @@ class OrderViewSet(
         new_status = request.data.get("status")
         if not new_status:
             raise ValidationError({"status": "This field is required."})
+        rejection_reason = (request.data.get("reason") or "").strip()
+        if new_status == OrderStatus.REJECTED and not rejection_reason:
+            raise ValidationError(
+                {"reason": "Give the buyer a reason for rejecting this order."}
+            )
+        if len(rejection_reason) > 2000:
+            raise ValidationError({"reason": "Keep the reason under 2000 characters."})
         if new_status == OrderStatus.CANCELLED and OrderShipmentDetails.objects.filter(
             order=order,
             authorized_at__isnull=False,
@@ -649,6 +661,11 @@ class OrderViewSet(
             )
         with transaction.atomic():
             actor = request.user
+            order = (
+                Order.objects.select_for_update()
+                .select_related("wholesaler", "farmer", "retailer", "product")
+                .get(pk=order.pk)
+            )
             wallet_order = bool(order.payment_status)
             seller_transitions = (
                 OrderStatus.ACCEPTED,
@@ -680,6 +697,36 @@ class OrderViewSet(
             if new_status == OrderStatus.ACCEPTED:
                 if order.status != OrderStatus.PENDING_SELLER_APPROVAL:
                     raise ValidationError("Only a pending order can be accepted.")
+                if order.payment_status:
+                    # Never let an acceptance create money: the buyer's funds
+                    # must already be held by the marketplace, with the matching
+                    # reservation ledger entry, or the seller cannot accept.
+                    if order.payment_status not in (
+                        OrderPaymentStatus.HELD,
+                        OrderPaymentStatus.RESERVED,
+                    ):
+                        raise ValidationError(
+                            {
+                                "payment": (
+                                    "The buyer's escrow payment is not reserved, "
+                                    "so this order cannot be accepted."
+                                )
+                            }
+                        )
+                    if not WalletTransaction.objects.filter(
+                        order=order,
+                        transaction_type=WalletTransactionType.ORDER_RESERVATION,
+                        held_delta=order.total_amount,
+                    ).exists():
+                        raise ValidationError(
+                            {
+                                "payment": (
+                                    "The buyer's escrow reservation could not be "
+                                    "verified. Financial support must review this "
+                                    "order before it is accepted."
+                                )
+                            }
+                        )
                 BusinessAgreement.objects.get_or_create(
                     order=order,
                     defaults={
@@ -697,9 +744,32 @@ class OrderViewSet(
                 raise ValidationError(str(exc))
 
             if new_status == OrderStatus.ACCEPTED:
-                order.payment_status = OrderPaymentStatus.HELD
-                order.save(update_fields=["payment_status", "updated_at"])
+                if order.payment_status == OrderPaymentStatus.RESERVED:
+                    order.payment_status = OrderPaymentStatus.HELD
+                    order.save(update_fields=["payment_status", "updated_at"])
                 enqueue_order_authorization(order.pk, actor)
+            if new_status == OrderStatus.REJECTED:
+                order.rejection_reason = rejection_reason[:2000]
+                order.save(update_fields=["rejection_reason", "updated_at"])
+            AuditLog.objects.create(
+                actor=actor,
+                action=(
+                    "order_accepted"
+                    if new_status == OrderStatus.ACCEPTED
+                    else "order_rejected"
+                    if new_status == OrderStatus.REJECTED
+                    else "order_status_updated"
+                ),
+                target=order.reference,
+                detail=(
+                    f"Status: {new_status}"
+                    + (
+                        f"; reason: {order.rejection_reason}"
+                        if new_status == OrderStatus.REJECTED
+                        else ""
+                    )
+                ),
+            )
             if new_status in (OrderStatus.REJECTED, OrderStatus.CANCELLED):
                 if order.payment_status == OrderPaymentStatus.HELD:
                     release_order_reservation(
@@ -1479,6 +1549,45 @@ class WalletFundingReviewView(APIView):
             return Response(
                 {"success": True, "funding_request": WalletFundingRequestSerializer(funding).data}
             )
+
+
+class WalletFundingFlagView(APIView):
+    """POST /api/v1/wallet/funding/{id}/flag/ — flag a deposit for investigation.
+
+    Flagging never credits or rejects the deposit. It moves the request to
+    FLAGGED, records the reason and the reviewer, and leaves the wallet ledger
+    untouched so a Financial Manager can still approve or reject it later.
+    """
+
+    permission_classes = [IsFinancialManager]
+    serializer_class = FundingFlagSerializer
+
+    @extend_schema(
+        request=FundingFlagSerializer,
+        responses=OpenApiTypes.OBJECT,
+    )
+    def post(self, request, pk):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        funding = flag_funding_request(
+            pk, request.user, reason=serializer.validated_data["reason"]
+        )
+        notify(
+            user_ids=[funding.wallet.user_id],
+            type="PAYMENT",
+            message=(
+                "Your wallet funding request was flagged for review; "
+                "no funds were credited yet."
+            ),
+            actor=request.user,
+            target_url="/wallet",
+        )
+        return Response(
+            {
+                "success": True,
+                "funding_request": WalletFundingRequestSerializer(funding).data,
+            }
+        )
 
 
 class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):

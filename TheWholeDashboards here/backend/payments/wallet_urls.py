@@ -11,6 +11,7 @@ from .views import (
     BankAccountReviewFlagView,
     PayoutBankListView,
     ReviewListCreateView,
+    WalletFundingFlagView,
     WalletFundingRequestListCreateView,
     WalletFundingReviewView,
     WalletPayoutDetailView,
@@ -47,6 +48,11 @@ urlpatterns = [
         "funding/<uuid:pk>/review/",
         WalletFundingReviewView.as_view(),
         name="wallet_funding_review",
+    ),
+    path(
+        "funding/<uuid:pk>/flag/",
+        WalletFundingFlagView.as_view(),
+        name="wallet_funding_flag",
     ),
     path(
         "funding/<uuid:pk>/verify/",

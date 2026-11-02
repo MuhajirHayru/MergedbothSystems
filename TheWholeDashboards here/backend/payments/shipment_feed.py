@@ -377,7 +377,7 @@ def _apply_page(page, current_cursor):
                     raise CommandError(
                         "Driver fee agreement references an unknown marketplace driver."
                     )
-            MarketplaceDeliveryFeeAgreement.objects.create(
+            agreement = MarketplaceDeliveryFeeAgreement.objects.create(
                 order=order,
                 source_event_id=event_id,
                 driver_shipment_id=event["shipment_id"],
@@ -389,6 +389,12 @@ def _apply_page(page, current_cursor):
                 buyer_accepted_at=accepted_times[0],
                 driver_accepted_at=accepted_times[1],
             )
+            from .financial_services import snapshot_delivery_pricing
+            try:
+                snapshot_delivery_pricing(agreement)
+            except ValueError as error:
+                if "No approved effective delivery pricing" not in str(error):
+                    raise
             AuditLog.objects.create(
                 actor=None,
                 action="driver_delivery_fee_agreement_recorded",

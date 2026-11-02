@@ -1,6 +1,8 @@
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
 from rest_framework import generics, serializers, status
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -147,29 +149,84 @@ class MarketplaceDeliveryFeeAgreementSerializer(serializers.ModelSerializer):
         return agreement.financial_review.decision
 
 
+DELIVERY_FEE_ORDERINGS = {
+    "-recorded_at",
+    "recorded_at",
+    "-financial_review__decided_at",
+    "financial_review__decided_at",
+    "-amount",
+    "amount",
+}
+
+
+def _date_param(params, name):
+    raw = params.get(name)
+    if not raw:
+        return None
+    parsed = parse_date(raw)
+    if parsed is None:
+        raise ValidationError({name: "Use YYYY-MM-DD format."})
+    return parsed
+
+
 class MarketplaceDeliveryFeeAgreementListView(generics.ListAPIView):
     serializer_class = MarketplaceDeliveryFeeAgreementSerializer
     permission_classes = [IsMarketplaceFinancialReviewer]
 
     def get_queryset(self):
-        queryset = (
-            MarketplaceDeliveryFeeAgreement.objects.select_related(
-                "order__wholesaler",
-                "order__farmer",
-                "order__retailer",
-                "driver_payee",
-                "financial_review__actor",
-            )
-            .order_by("-recorded_at")
+        params = self.request.query_params
+        queryset = MarketplaceDeliveryFeeAgreement.objects.select_related(
+            "order__wholesaler",
+            "order__farmer",
+            "order__retailer",
+            "driver_payee",
+            "financial_review__actor",
         )
-        review_status = self.request.query_params.get("status", "pending")
+
+        review_status = params.get("status", "pending")
         if review_status == "pending":
-            return queryset.filter(financial_review__isnull=True)
-        if review_status == "all":
-            return queryset
-        if review_status in MarketplaceDeliveryFeeReview.Decision.values:
-            return queryset.filter(financial_review__decision=review_status)
-        return queryset.none()
+            queryset = queryset.filter(financial_review__isnull=True)
+        elif review_status == "all":
+            pass
+        elif review_status in MarketplaceDeliveryFeeReview.Decision.values:
+            queryset = queryset.filter(financial_review__decision=review_status)
+        else:
+            queryset = queryset.none()
+
+        search = (params.get("search") or "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(order__reference__icontains=search)
+                | Q(order__wholesaler__full_name__icontains=search)
+                | Q(order__farmer__full_name__icontains=search)
+                | Q(order__retailer__full_name__icontains=search)
+                | Q(driver_payee__full_name__icontains=search)
+            )
+
+        recorded_from = _date_param(params, "recorded_from")
+        recorded_to = _date_param(params, "recorded_to")
+        if recorded_from and recorded_to and recorded_from > recorded_to:
+            raise ValidationError({"recorded_to": "Must be on or after recorded_from."})
+        if recorded_from:
+            queryset = queryset.filter(recorded_at__date__gte=recorded_from)
+        if recorded_to:
+            queryset = queryset.filter(recorded_at__date__lte=recorded_to)
+
+        decided_from = _date_param(params, "decided_from")
+        decided_to = _date_param(params, "decided_to")
+        if decided_from and decided_to and decided_from > decided_to:
+            raise ValidationError({"decided_to": "Must be on or after decided_from."})
+        if decided_from:
+            queryset = queryset.filter(financial_review__decided_at__date__gte=decided_from)
+        if decided_to:
+            queryset = queryset.filter(financial_review__decided_at__date__lte=decided_to)
+
+        ordering = params.get("ordering", "-recorded_at")
+        if ordering in DELIVERY_FEE_ORDERINGS:
+            queryset = queryset.order_by(ordering)
+        else:
+            queryset = queryset.order_by("-recorded_at")
+        return queryset
 
 
 class DeliveryFeeReviewConflictResponse(APIException):

@@ -74,6 +74,12 @@ class Product(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
+    name_am = models.CharField(
+        max_length=255, blank=True, default="", verbose_name="Amharic title"
+    )
+    name_om = models.CharField(
+        max_length=255, blank=True, default="", verbose_name="Afaan Oromo title"
+    )
     description = models.TextField(blank=True, default="")
     category = models.CharField(
         max_length=100, default=Category.VEGETABLES

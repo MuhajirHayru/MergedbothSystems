@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from rest_framework.exceptions import APIException, ValidationError
 
+from .bank_accounts import decrypt_account_number
 from .models import FundingStatus, WalletFundingRequest
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,61 @@ def _chapa_request(method, path, payload=None):
     return result
 
 
+CHAPA_BANK_CODES = {
+    "commercial-bank-of-ethiopia": 946,
+    "bank-of-abyssinia": 347,
+    "hibret-bank": 534,
+    "nib-international-bank": 979,
+    "zemen-bank": 687,
+    "cooperative-bank-of-oromia": 836,
+    "addis-international-bank": 772,
+    "bunna-bank": 249,
+}
+
+
+def initiate_payout_transfer(payout):
+    """Send an approved payout from the GreenPath Chapa balance to the recipient."""
+    account = payout.payout_account
+    if account is None:
+        raise ValidationError(
+            {"payout_account": "A registered payout account is required for Chapa transfer."}
+        )
+    bank_code = CHAPA_BANK_CODES.get(account.bank.code)
+    if bank_code is None:
+        raise ValidationError(
+            {
+                "payout_account": (
+                    f"{account.bank.name} is not available for Chapa transfers. "
+                    "Use a supported bank or complete this payout manually."
+                )
+            }
+        )
+    currency = payout.wallet.currency.upper()
+    if currency != "ETB":
+        raise ValidationError({"currency": "Chapa transfers only support ETB."})
+    reference = f"GREENPATH-PAYOUT-{payout.pk}"
+    payload = {
+        "account_name": account.account_holder_name,
+        "account_number": decrypt_account_number(account.account_number_encrypted),
+        "amount": str(payout.amount),
+        "currency": currency,
+        "reference": reference,
+        "bank_code": bank_code,
+    }
+    response = _chapa_request("POST", "/transfers", payload)
+    if response.get("status") != "success":
+        raise ChapaGatewayError()
+    data = response.get("data")
+    if isinstance(data, str) and data.strip():
+        return data.strip()
+    if isinstance(data, dict):
+        for key in ("reference", "chapa_reference", "bank_reference"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return reference
+
+
 def initialize_checkout(funding):
     user = funding.wallet.user
     names = user.full_name.strip().split(maxsplit=1)
@@ -247,6 +303,31 @@ def _apply_verification(funding_id, provider_data):
             ]
         )
         return funding, funding.status == FundingStatus.AWAITING_APPROVAL
+
+
+def verify_delivery_transaction(payment):
+    _config()
+    response = _chapa_request(
+        "GET",
+        f"/transaction/verify/{quote(payment.payment_reference, safe='')}",
+    )
+    data = response.get("data")
+    if response.get("status") != "success" or not isinstance(data, dict):
+        raise ChapaGatewayError()
+    try:
+        amount = Decimal(str(data.get("amount"))).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    tx_ref = data.get("tx_ref", data.get("reference", ""))
+    currency = data.get("currency")
+    mode = data.get("mode", "test")
+    status = str(data.get("status", "")).lower()
+    if tx_ref != payment.payment_reference or amount != payment.customer_amount or not isinstance(currency, str) or currency.upper() != payment.agreement.currency.upper() or not isinstance(mode, str) or mode.lower() != "test" or status != "success":
+        return None
+    return {
+        "amount": amount,
+        "evidence_reference": f"chapa:{data.get('id', tx_ref)}",
+    }
 
 
 def verify_funding(funding):

@@ -28,6 +28,9 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger"),
     path("api/v1/health/", lambda r: JsonResponse({"status": "ok"}), name="health"),
+    # Merged DriverApp API (logistics). Mounted at /api/ exactly as the
+    # standalone DriverApp backend served it, so existing client contracts hold.
+    path("api/", include("logistics.urls")),
 ]
 
 if settings.DEBUG:

@@ -1,8 +1,10 @@
 """Role dashboard aggregation endpoints (doc 5.1.5, FR-F-06, FR-W-07, FR-R-05, FR-SA-05)."""
+from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Max, Q, Sum
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from chat.models import Message
 from notifications.models import Notification
@@ -179,6 +181,18 @@ class WholesalerDashboardView(APIView):
                 for o in orders[:5]
             ]
 
+        seller_totals = (
+            purchases.open()
+            .exclude(farmer__isnull=True)
+            .values("farmer_id", "farmer__full_name", "farmer__location")
+            .annotate(
+                order_count=Count("id"),
+                total_spent=Sum("total_amount"),
+                last_order=Max("created_at"),
+            )
+            .order_by("-total_spent", "-last_order")
+        )
+
         return Response(
             {
                 "success": True,
@@ -187,10 +201,7 @@ class WholesalerDashboardView(APIView):
                     "total_spent": int(
                         purchases.open().aggregate(t=Sum("total_amount"))["t"] or 0
                     ),
-                    "favorite_sellers": purchases
-                    .values("farmer")
-                    .distinct()
-                    .count(),
+                    "favorite_sellers": seller_totals.count(),
                     "unread_messages": _unread_message_count(user),
                     "active_listings": Product.objects.filter(
                         owner=user, status=ProductStatus.ACTIVE
@@ -226,6 +237,21 @@ class WholesalerDashboardView(APIView):
                         "date": o.created_at.strftime("%b %d, %Y"),
                     }
                     for o in orders[:10]
+                ],
+                "favorite_sellers": [
+                    {
+                        "id": str(row["farmer_id"]),
+                        "name": row["farmer__full_name"],
+                        "location": row["farmer__location"] or "",
+                        "orders": row["order_count"],
+                        "total_spent": int(row["total_spent"] or 0),
+                        "last_order": (
+                            row["last_order"].strftime("%b %d, %Y")
+                            if row["last_order"]
+                            else ""
+                        ),
+                    }
+                    for row in seller_totals
                 ],
                 "recent_activity": _recent_activity(user, fallback),
             }
@@ -397,9 +423,45 @@ class PaymentSummaryView(APIView):
         )
 
 
+def _parse_period(request, default_days=30):
+    """Resolve the reporting window without inventing data outside it."""
+    today = timezone.localdate()
+    raw_from = (request.query_params.get("date_from") or "").strip()
+    raw_to = (request.query_params.get("date_to") or "").strip()
+    if raw_from or raw_to:
+        try:
+            start = (
+                date.fromisoformat(raw_from)
+                if raw_from
+                else today - timedelta(days=default_days - 1)
+            )
+            end = date.fromisoformat(raw_to) if raw_to else today
+        except ValueError:
+            raise ValidationError({"date_from": "Use ISO dates (YYYY-MM-DD)."})
+        if start > end:
+            raise ValidationError(
+                {"date_from": "The start date must be on or before the end date."}
+            )
+    else:
+        try:
+            days = int(request.query_params.get("days", default_days))
+        except (TypeError, ValueError):
+            days = default_days
+        days = max(1, min(days, 366))
+        start = today - timedelta(days=days - 1)
+        end = today
+    return start, end
+
+
 @extend_schema(responses=OpenApiTypes.OBJECT)
 class FinancialOperationsSummaryView(APIView):
-    """Read-only wallet and payout aggregates for the Financial Manager."""
+    """Read-only wallet, funding, payout and GMV aggregates for the Financial Manager.
+
+    Wallet balances are current point-in-time totals. Funding, payout, order and
+    payment activity is restricted to the requested period (``days`` or
+    ``date_from``/``date_to``). No revenue or profit figure is returned because
+    the platform has no commission, fee or expense ledger to derive one from.
+    """
 
     permission_classes = [IsFinancialManager]
 
@@ -407,6 +469,14 @@ class FinancialOperationsSummaryView(APIView):
     def _money(value):
         amount = value if value is not None else Decimal("0.00")
         return str(amount.quantize(Decimal("0.01")))
+
+    @classmethod
+    def _bucket(cls, queryset):
+        totals = queryset.aggregate(count=Count("id"), amount=Sum("amount"))
+        return {
+            "count": totals["count"] or 0,
+            "amount": cls._money(totals["amount"]),
+        }
 
     @classmethod
     def _by_status(cls, queryset):
@@ -421,6 +491,7 @@ class FinancialOperationsSummaryView(APIView):
         }
 
     def get(self, request):
+        start, end = _parse_period(request)
         participant_roles = (Role.FARMER, Role.WHOLESALER, Role.RETAILER)
         wallets = Wallet.objects.filter(user__role__in=participant_roles)
         wallet_totals = wallets.aggregate(
@@ -444,19 +515,62 @@ class FinancialOperationsSummaryView(APIView):
         funding = WalletFundingRequest.objects.filter(
             wallet__user__role__in=participant_roles
         )
-        funding_review = funding.filter(
-            status__in=(FundingStatus.PENDING, FundingStatus.AWAITING_APPROVAL)
-        ).aggregate(count=Count("id"), amount=Sum("amount"))
-
         payouts = WalletPayoutRequest.objects.filter(
             wallet__user__role__in=participant_roles
         )
-        pending_payouts = payouts.filter(status=PayoutStatus.PENDING).aggregate(
+        period_funding = funding.filter(
+            submitted_at__date__gte=start, submitted_at__date__lte=end
+        )
+        period_payouts = payouts.filter(
+            submitted_at__date__gte=start, submitted_at__date__lte=end
+        )
+        approved_funding = funding.filter(
+            reviewed_at__date__gte=start,
+            reviewed_at__date__lte=end,
+            status__in=(FundingStatus.VERIFIED, FundingStatus.APPROVED),
+        )
+        rejected_funding = funding.filter(
+            reviewed_at__date__gte=start,
+            reviewed_at__date__lte=end,
+            status=FundingStatus.REJECTED,
+        )
+        paid_payouts_period = payouts.filter(
+            reviewed_at__date__gte=start,
+            reviewed_at__date__lte=end,
+            status=PayoutStatus.PAID,
+        )
+        rejected_payouts_period = payouts.filter(
+            reviewed_at__date__gte=start,
+            reviewed_at__date__lte=end,
+            status=PayoutStatus.REJECTED,
+        )
+        pending_funding_statuses = (
+            FundingStatus.PENDING,
+            FundingStatus.AWAITING_PAYMENT,
+            FundingStatus.PAYMENT_VERIFICATION_PENDING,
+            FundingStatus.AWAITING_APPROVAL,
+        )
+        funding_review = funding.filter(status__in=pending_funding_statuses)
+        pending_payouts = payouts.filter(status=PayoutStatus.PENDING)
+        paid_payouts = payouts.filter(status=PayoutStatus.PAID)
+
+        completed_orders = Order.objects.filter(
+            status=OrderStatus.COMPLETED,
+            updated_at__date__gte=start,
+            updated_at__date__lte=end,
+        )
+        order_totals = completed_orders.aggregate(
+            count=Count("id"), amount=Sum("total_amount")
+        )
+
+        payments = PaymentRecord.objects.filter(
+            submitted_at__date__gte=start, submitted_at__date__lte=end
+        )
+        verified_payments = payments.filter(status=PaymentStatus.VERIFIED)
+        verified_payment_totals = verified_payments.aggregate(
             count=Count("id"), amount=Sum("amount")
         )
-        paid_payouts = payouts.filter(status=PayoutStatus.PAID).aggregate(
-            count=Count("id"), amount=Sum("amount")
-        )
+        payment_by_status = self._by_status(payments)
 
         escrow_statuses = (
             OrderStatus.AWAITING_PAYMENT_RELEASE,
@@ -473,34 +587,107 @@ class FinancialOperationsSummaryView(APIView):
             for row in escrow
         }
 
+        beneficiary_accounts = BankAccount.objects.filter(
+            user__role__in=participant_roles
+        )
+        from payments.financial_models import FinancialOrderSnapshot, FinancialJournalEntry, FinancialOperatingExpense, FinancialPayrollRecord
+        financial_entries = FinancialJournalEntry.objects.filter(created_at__date__gte=start, created_at__date__lte=end)
+        commission_total = financial_entries.filter(category="MARKETPLACE_COMMISSION").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        driver_total = financial_entries.filter(category="DELIVERY_FEE_EARNING").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        expense_total = FinancialOperatingExpense.objects.filter(status=FinancialOperatingExpense.Status.PAID, incurred_on__gte=start, incurred_on__lte=end).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        payroll_total = FinancialPayrollRecord.objects.filter(status=FinancialPayrollRecord.Status.PAID, period_start__lte=end, period_end__gte=start).aggregate(total=Sum("base_amount"))["total"] or Decimal("0.00")
+        unresolved = FinancialOrderSnapshot.objects.filter(status=FinancialOrderSnapshot.Status.TAX_UNRESOLVED, created_at__date__gte=start, created_at__date__lte=end).exists()
+
         return Response(
             {
                 "success": True,
+                "generated_at": timezone.now().isoformat(),
+                "period": {
+                    "days": (end - start).days + 1,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "label": f"{start.strftime('%d %b %Y')} - {end.strftime('%d %b %Y')}",
+                },
                 "wallets": {
-                    "count": wallet_totals["count"],
+                    "count": wallet_totals["count"] or 0,
                     "available_balance": self._money(wallet_totals["available"]),
                     "held_balance": self._money(wallet_totals["held"]),
+                    "total_balance": self._money(
+                        (wallet_totals["available"] or Decimal("0.00"))
+                        + (wallet_totals["held"] or Decimal("0.00"))
+                    ),
                     "by_role": wallet_by_role,
                 },
                 "funding": {
                     "by_status": self._by_status(funding),
-                    "awaiting_review_count": funding_review["count"],
-                    "awaiting_review_amount": self._money(funding_review["amount"]),
+                    "awaiting_review_count": funding_review.aggregate(
+                        count=Count("id")
+                    )["count"]
+                    or 0,
+                    "awaiting_review_amount": self._bucket(funding_review)["amount"],
+                    "pending_count": funding_review.aggregate(count=Count("id"))[
+                        "count"
+                    ]
+                    or 0,
+                    "pending_amount": self._bucket(funding_review)["amount"],
                 },
                 "payouts": {
                     "by_status": self._by_status(payouts),
-                    "pending_count": pending_payouts["count"],
-                    "pending_amount": self._money(pending_payouts["amount"]),
-                    "paid_count": paid_payouts["count"],
-                    "paid_amount": self._money(paid_payouts["amount"]),
+                    "pending_count": pending_payouts.aggregate(count=Count("id"))[
+                        "count"
+                    ]
+                    or 0,
+                    "pending_amount": self._bucket(pending_payouts)["amount"],
+                    "paid_count": paid_payouts.aggregate(count=Count("id"))["count"]
+                    or 0,
+                    "paid_amount": self._bucket(paid_payouts)["amount"],
+                },
+                "activity": {
+                    "funding": {
+                        "requested": self._bucket(period_funding),
+                        "approved": self._bucket(approved_funding),
+                        "rejected": self._bucket(rejected_funding),
+                        "flagged_current": self._bucket(
+                            funding.filter(status=FundingStatus.FLAGGED)
+                        ),
+                        "pending_current": self._bucket(funding_review),
+                    },
+                    "payouts": {
+                        "requested": self._bucket(period_payouts),
+                        "paid": self._bucket(paid_payouts_period),
+                        "rejected": self._bucket(rejected_payouts_period),
+                        "pending_current": self._bucket(pending_payouts),
+                    },
+                    "orders": {
+                        "completed_count": order_totals["count"] or 0,
+                        "gmv": self._money(order_totals["amount"]),
+                        "currency": "ETB",
+                    },
+                    "payments": {
+                        "count": payments.aggregate(count=Count("id"))["count"] or 0,
+                        "verified_count": verified_payment_totals["count"] or 0,
+                        "verified_amount": self._money(
+                            verified_payment_totals["amount"]
+                        ),
+                        "by_status": payment_by_status,
+                    },
+                },
+                "revenue": {
+                    "available": FinancialOrderSnapshot.objects.filter(created_at__date__gte=start, created_at__date__lte=end).exists() and not unresolved,
+                    "reason": "Revenue reflects posted marketplace commissions only; delivery margin and product cost data are unavailable." if not unresolved else "One or more completed orders have unresolved commission or tax configuration.",
+                    "revenue": self._money(commission_total) if not unresolved and FinancialOrderSnapshot.objects.filter(created_at__date__gte=start, created_at__date__lte=end).exists() else None,
+                    "gross_profit": None,
+                    "net_profit": None,
+                    "commission_revenue": self._money(commission_total) if not unresolved and FinancialOrderSnapshot.objects.filter(created_at__date__gte=start, created_at__date__lte=end).exists() else None,
+                    "driver_compensation": self._money(driver_total),
+                    "operating_expenses": self._money(expense_total),
+                    "payroll_expenses": self._money(payroll_total),
+                    "missing": ["delivery service revenue", "product acquisition cost / cost of goods sold", "tax applicability where no approved rule exists"],
                 },
                 "beneficiaries": {
-                    "count": BankAccount.objects.filter(
-                        user__role__in=participant_roles
-                    ).count(),
-                    "requires_review_count": BankAccount.objects.filter(
-                        user__role__in=participant_roles,
-                        status="REQUIRES_REVIEW",
+                    "count": beneficiary_accounts.count(),
+                    "requires_review_count": beneficiary_accounts.filter(
+                        status="REQUIRES_REVIEW"
                     ).count(),
                 },
                 "escrow": escrow_by_status,

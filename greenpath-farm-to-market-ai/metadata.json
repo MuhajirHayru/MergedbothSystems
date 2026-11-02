@@ -1,0 +1,6 @@
+{
+  "name": "GreenPath Farm to Market AI",
+  "description": "Intelligent agricultural marketplace connecting Ethiopian farmers, wholesalers, retailers, and drivers with real-time trading, geospatial logistics, and AI crop advisory.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

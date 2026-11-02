@@ -69,11 +69,14 @@ def _attach_refresh_cookie(response, refresh_token):
 
 
 def _user_payload(user):
+    registration = getattr(user, "registration", None)
     return {
         "id": str(user.id),
         "full_name": user.full_name,
         "email": user.email,
         "phone": user.phone,
+        "business_name": getattr(registration, "business_name", "") or "",
+        "business_address": getattr(registration, "business_address", "") or "",
         "profile_photo": user.profile_photo.url if user.profile_photo else "",
         "role": user.role,
         "role_display": user.get_role_display(),

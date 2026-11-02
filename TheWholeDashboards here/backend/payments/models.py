@@ -7,6 +7,13 @@ from django.utils import timezone
 
 from products.models import Product
 from registrations.models import AdministrativeLocation
+from .financial_models import (
+    FinancialAccount,
+    FinancialConfiguration,
+    FinancialJournalEntry,
+    FinancialOperatingExpense,
+    FinancialPayrollRecord,
+)
 
 
 class PaymentStatus(models.TextChoices):
@@ -232,6 +239,7 @@ class Order(models.Model):
     delivered_at = models.DateTimeField(null=True, blank=True)
     quality_confirmed_at = models.DateTimeField(null=True, blank=True)
     dispute_reason = models.TextField(blank=True, default="")
+    rejection_reason = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -478,6 +486,11 @@ class MarketplaceDeliveryFeeAgreement(models.Model):
     buyer_accepted_at = models.DateTimeField()
     driver_accepted_at = models.DateTimeField()
     recorded_at = models.DateTimeField(auto_now_add=True)
+    pricing_model_snapshot = models.CharField(max_length=1, blank=True, default="")
+    pricing_configuration_snapshot = models.JSONField(default=dict, blank=True)
+    driver_charge_snapshot = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    platform_fee_snapshot = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    tax_amount_snapshot = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
 
     class Meta:
         db_table = "marketplace_delivery_fee_agreements"
@@ -765,6 +778,7 @@ class FundingStatus(models.TextChoices):
     )
     VERIFIED = "VERIFIED", "Verified"
     APPROVED = "APPROVED", "Approved"
+    FLAGGED = "FLAGGED", "Flagged for investigation"
     REJECTED = "REJECTED", "Rejected"
     FAILED = "FAILED", "Failed"
 

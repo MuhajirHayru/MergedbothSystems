@@ -76,6 +76,9 @@ INSTALLED_APPS = [
     "notifications",
     "dashboard",
     "registrations",
+    # Merged DriverApp backend (agricultural logistics). Its LogisticsUser is a
+    # separate AbstractUser table; AUTH_USER_MODEL remains users.User.
+    "logistics",
 ]
 
 MIDDLEWARE = [
@@ -186,6 +189,121 @@ CHAT_VOICE_MAX_BYTES = int(os.environ.get("CHAT_VOICE_MAX_BYTES", str(10 * 1024 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
+# STORAGES — adds the DriverApp private-document bucket to the defaults
+# ---------------------------------------------------------------------------
+PRIVATE_DOCUMENT_STORAGE_BACKEND = os.environ.get(
+    "PRIVATE_DOCUMENT_STORAGE_BACKEND",
+    "django.core.files.storage.FileSystemStorage",
+)
+PRIVATE_DOCUMENT_STORAGE_OPTIONS = {
+    "location": os.environ.get(
+        "PRIVATE_DOCUMENT_ROOT", str(BASE_DIR / "private_documents")
+    )
+}
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+    },
+    "private_documents": {
+        "BACKEND": PRIVATE_DOCUMENT_STORAGE_BACKEND,
+        "OPTIONS": PRIVATE_DOCUMENT_STORAGE_OPTIONS,
+    },
+}
+
+# ---------------------------------------------------------------------------
+# DriverApp (logistics) settings — merged from the standalone DriverApp backend
+# ---------------------------------------------------------------------------
+DRIVER_DOCUMENT_MAX_BYTES = int(
+    os.environ.get("DRIVER_DOCUMENT_MAX_BYTES", str(10 * 1024 * 1024))
+)
+SHIPMENT_EVIDENCE_MAX_BYTES = int(
+    os.environ.get("SHIPMENT_EVIDENCE_MAX_BYTES", str(10 * 1024 * 1024))
+)
+SHIPMENT_REQUIRE_PICKUP_EVIDENCE = (
+    os.environ.get("SHIPMENT_REQUIRE_PICKUP_EVIDENCE", "1") == "1"
+)
+SHIPMENT_REQUIRE_DELIVERY_EVIDENCE = (
+    os.environ.get("SHIPMENT_REQUIRE_DELIVERY_EVIDENCE", "1") == "1"
+)
+DRIVER_DOCUMENT_TYPES = [
+    part
+    for part in os.environ.get(
+        "DRIVER_DOCUMENT_TYPES",
+        "identity,driving_license,vehicle_registration",
+    ).split(",")
+    if part
+]
+DRIVER_REQUIRED_DOCUMENT_TYPES = [
+    part
+    for part in os.environ.get(
+        "DRIVER_REQUIRED_DOCUMENT_TYPES",
+        "identity,driving_license,vehicle_registration",
+    ).split(",")
+    if part
+]
+DRIVER_REQUIRED_APPLICATION_FIELDS = [
+    part
+    for part in os.environ.get(
+        "DRIVER_REQUIRED_APPLICATION_FIELDS",
+        "legal_full_name,license_number,license_expiry,vehicle_type,"
+        "vehicle_registration,cargo_capacity_kg",
+    ).split(",")
+    if part
+]
+DRIVER_EXPIRY_POLICY = os.environ.get("DRIVER_EXPIRY_POLICY", "expire")
+DRIVER_LOCATION_MAX_ACCURACY_METERS = int(
+    os.environ.get("DRIVER_LOCATION_MAX_ACCURACY_METERS", "1000")
+)
+DRIVER_LOCATION_MAX_AGE_SECONDS = int(
+    os.environ.get("DRIVER_LOCATION_MAX_AGE_SECONDS", "120")
+)
+DRIVER_LOCATION_FUTURE_SKEW_SECONDS = int(
+    os.environ.get("DRIVER_LOCATION_FUTURE_SKEW_SECONDS", "30")
+)
+DRIVER_LOCATION_SESSION_TIMEOUT_SECONDS = int(
+    os.environ.get("DRIVER_LOCATION_SESSION_TIMEOUT_SECONDS", "120")
+)
+DRIVER_LOCATION_STALE_AFTER_SECONDS = int(
+    os.environ.get("DRIVER_LOCATION_STALE_AFTER_SECONDS", "90")
+)
+DRIVER_LOCATION_MAX_PAYLOAD_BYTES = int(
+    os.environ.get("DRIVER_LOCATION_MAX_PAYLOAD_BYTES", "2048")
+)
+MARKETPLACE_INTEGRATION_ENABLED = (
+    os.environ.get("MARKETPLACE_INTEGRATION_ENABLED", "1") == "1"
+)
+MARKETPLACE_INTEGRATION_SECRET = os.environ.get("MARKETPLACE_INTEGRATION_SECRET", "")
+MARKETPLACE_INTEGRATION_MAX_BYTES = int(
+    os.environ.get("MARKETPLACE_INTEGRATION_MAX_BYTES", str(256 * 1024))
+)
+MARKETPLACE_INTEGRATION_MAX_SKEW_SECONDS = int(
+    os.environ.get("MARKETPLACE_INTEGRATION_MAX_SKEW_SECONDS", "300")
+)
+MARKETPLACE_LOGIN_ALLOWED_ORIGINS = [
+    origin
+    for origin in os.environ.get(
+        "MARKETPLACE_LOGIN_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin
+]
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
+# The marketplace API now lives in this same process; loopback HTTP keeps the
+# marketplace-client contract (and its token handling) unchanged.
+GREENPATH_MARKETPLACE_API_BASE_URL = os.environ.get(
+    "GREENPATH_MARKETPLACE_API_BASE_URL", "http://127.0.0.1:8000"
+)
+PASSWORD_RESET_DEBUG_DELIVERY = (
+    os.environ.get("PASSWORD_RESET_DEBUG_DELIVERY", "0") == "1"
+)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = int(os.environ.get("SESSION_COOKIE_AGE", "1800"))
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_SAVE_EVERY_REQUEST = True
+
+# ---------------------------------------------------------------------------
 # CORS / Cookies (local Next.js dev and production verification ports)
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = [
@@ -209,6 +327,9 @@ CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "users.authentication.PasswordVersionJWTAuthentication",
+        # DriverApp views authenticate via the LogisticsUser browser session;
+        # JWT is tried first so marketplace callers are unaffected.
+        "logistics.authentication.SessionAuthenticationWith401",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -223,6 +344,19 @@ REST_FRAMEWORK = {
         "password_reset_confirm": "10/hour",
         "assistant_chat": "10/minute",
         "assistant_transcription": "6/minute",
+        # DriverApp (logistics) scoped rates
+        "auth_login": "5/minute",
+        "auth_register": "3/hour",
+        "auth_password_reset": "3/hour",
+        "auth_password_reset_confirm": "5/hour",
+        "auth_password_change": "5/hour",
+        "driver_document_upload": "10/hour",
+        "marketplace_integration": "60/minute",
+        "driver_location_update": "30/minute",
+        "driver_location_session": "12/minute",
+        "shipment_location_read": "120/minute",
+        "driver_assistant_chat": "20/minute",
+        "driver_assistant_transcription": "10/minute",
     },
 }
 

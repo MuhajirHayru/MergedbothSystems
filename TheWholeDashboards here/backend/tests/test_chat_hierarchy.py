@@ -11,8 +11,9 @@ from registrations.models import (
     AdministratorScope,
     AdministrativeLocation,
     LocationLevel,
+    UserRegistration,
 )
-from users.models import Role, User
+from users.models import AccountStatus, Role, User
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -121,6 +122,75 @@ async def test_admin_websocket_rejects_conversation_outside_scope(scoped_admins)
 
     assert connected is False
     assert code == 4403
+
+
+def _create_marketplace_user(email, name, role, location):
+    user = User.objects.create_user(
+        email=email,
+        password="test-password",
+        full_name=name,
+        role=role,
+        status=AccountStatus.APPROVED,
+        location=location.name,
+    )
+    UserRegistration.objects.create(user=user, location=location)
+    return user
+
+
+def test_admin_messaging_honours_the_geographic_scope(api, scoped_admins):
+    regional_admin, zone_admin, _ = scoped_admins
+    region = AdministrativeLocation.objects.get(source_id="chat-region-a")
+    zone = AdministrativeLocation.objects.get(source_id="chat-zone-a")
+    other_region = AdministrativeLocation.objects.get(source_id="chat-region-b")
+    inside = _create_marketplace_user(
+        "inside-farmer@test.et", "Inside Farmer", Role.FARMER, zone
+    )
+    other_zone = AdministrativeLocation.objects.create(
+        source_id="chat-zone-b",
+        name="Chat Zone B",
+        level=LocationLevel.ZONE,
+        parent=other_region,
+    )
+    outside = _create_marketplace_user(
+        "outside-farmer@test.et", "Outside Farmer", Role.FARMER, other_zone
+    )
+
+    api.force_authenticate(user=regional_admin)
+    allowed = api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(inside.pk)]},
+        format="json",
+    )
+    denied = api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(outside.pk)]},
+        format="json",
+    )
+    assert allowed.status_code == 201, allowed.data
+    assert denied.status_code == 403, denied.data
+
+    listed = api.get("/api/v1/chat/recipients/?search=FARMER")
+    assert listed.status_code == 200
+    ids = {row["id"] for row in listed.data["results"]}
+    assert str(inside.pk) in ids
+    assert str(outside.pk) not in ids
+
+    # The same geographic rule applies to a lower-level administrator; the
+    # farmer in the region but outside the zone is not reachable.
+    api.force_authenticate(user=zone_admin)
+    region_farmer = _create_marketplace_user(
+        "region-farmer@test.et", "Region Farmer", Role.FARMER, region
+    )
+    assert api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(inside.pk)]},
+        format="json",
+    ).status_code == 201
+    assert api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(region_farmer.pk)]},
+        format="json",
+    ).status_code == 403
 
 
 def test_top_level_admin_can_message_scoped_admin(api, scoped_admins, super_admin):

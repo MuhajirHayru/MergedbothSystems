@@ -56,7 +56,7 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            "id", "title", "description", "category", "category_display",
+            "id", "title", "name_am", "name_om", "description", "category", "category_display",
             "catalog_product", "catalog_product_name",
             "catalog_variety", "catalog_variety_name",
             "quantity", "unit_of_measure", "unit_display", "price_per_unit",
@@ -120,10 +120,14 @@ class ProductCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            "title", "description", "category", "quantity",
+            "title", "name_am", "name_om", "description", "category", "quantity",
             "unit_of_measure", "price_per_unit", "images",
             "catalog_product", "catalog_variety",
         ]
+        extra_kwargs = {
+            "name_am": {"required": False, "allow_blank": True},
+            "name_om": {"required": False, "allow_blank": True},
+        }
 
     def validate_quantity(self, value):
         if value <= 0:

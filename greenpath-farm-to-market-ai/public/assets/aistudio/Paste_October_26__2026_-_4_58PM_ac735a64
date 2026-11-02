@@ -1,0 +1,1663 @@
+# MASTER BUILD PROMPT — GREENPATH FARM TO MARKET AI
+## Complete React.js Frontend, Enterprise UI/UX, Marketplace, Financial Intelligence and Role-Based Administration
+
+Act as a world-class senior frontend architect, enterprise SaaS product designer, UI/UX specialist, React.js engineer, data visualization engineer, and agricultural fintech product architect.
+
+Your responsibility is to build a complete, visually exceptional, fully navigable frontend for **GreenPathFarm to Market AI**, an AI-integrated agricultural marketplace designed for Ethiopia.
+
+This is an existing business system with an established Django backend, APIs, user roles, permissions, financial workflows, registration processes, and a separate DriverApp integration.
+
+You must design the frontend around the actual system architecture and business rules described below.
+
+The objective is to generate a complete working React.js frontend with a live preview, not just a landing page, static mockup, or design concept.
+
+---
+
+# 1. TECHNOLOGY STACK — STRICT REQUIREMENTS
+
+Use the following frontend technologies:
+
+- React.js.
+- Vite.
+- TypeScript.
+- React Router DOM.
+- Tailwind CSS.
+- Lucide React icons.
+- Recharts for charts and data visualization.
+- React Hook Form for complex forms where appropriate.
+- Zod for form validation.
+- Axios for API communication.
+- TanStack Query for server-state management.
+- A clean, reusable component architecture.
+
+IMPORTANT:
+
+1. Do NOT use Next.js.
+2. Do NOT use Next.js App Router.
+3. Do NOT use Next.js server components or Next.js-specific APIs.
+4. Use React with Vite as the application foundation.
+5. Use React Router for navigation.
+6. Use environment variables for API configuration.
+7. Keep the frontend architecture ready for integration with the existing Django REST Framework backend.
+8. Generate actual source code and working interactions.
+
+Suggested project structure:
+
+src/
+- app/
+- components/
+- layouts/
+- pages/
+- features/
+- hooks/
+- services/
+- api/
+- contexts/
+- providers/
+- types/
+- utils/
+- config/
+- assets/
+- styles/
+
+Organize features by business domain and user role.
+
+Do not put the entire application into one large React component.
+
+# 2. BRAND IDENTITY AND GLOBAL DESIGN SYSTEM
+
+The brand identity must be consistent throughout the entire application.
+
+## Exact brand color requirements
+
+Use these exact sidebar colors:
+
+LIGHT MODE:
+- Primary sidebar background: Green-700 (#15803D).
+- Sidebar text: White.
+- Active navigation background: A subtle lighter green with clear contrast.
+- Active navigation indicator: White or a suitable contrasting green tone.
+
+DARK MODE:
+- Primary sidebar background: Slate-900 (#0F172A).
+- Sidebar text: White and light slate.
+- Active navigation: A clearly distinguishable slate/green treatment.
+
+The sidebar background must use the specified colors, not a pale green, gradient, or white background.
+
+Brand colors:
+- Primary brand: Green-700 (#15803D).
+- Secondary green: Green-600 (#16A34A).
+- Light green surfaces: Green-50 (#F0FDF4).
+- Dark sidebar: Slate-900 (#0F172A).
+- Main text: Slate-900.
+- Secondary text: Slate-500.
+- Borders: Slate-200.
+- Light background: Slate-50 or White.
+
+Use meaningful status colors:
+- Green: Approved, verified, completed.
+- Amber: Pending, awaiting action.
+- Red: Rejected, disputed, flagged.
+- Blue: Information and processing.
+- Gray: Inactive or archived.
+
+Do not randomly assign colors.
+
+## Overall design principles
+
+Create an international-quality enterprise SaaS experience.
+
+The interface should be:
+- Clean.
+- Modern.
+- Professional.
+- Consistent.
+- Information-rich without being overcrowded.
+- Accessible.
+- Responsive.
+- Visually balanced.
+
+Use:
+- Consistent typography.
+- Carefully calculated spacing.
+- Professional card layouts.
+- Clean data tables.
+- Refined borders.
+- Subtle shadows.
+- Consistent icons.
+- Excellent visual hierarchy.
+- Proper whitespace.
+- Thoughtful hover states.
+- Smooth but restrained animations.
+
+Avoid:
+- Outdated dashboard layouts.
+- Excessive gradients.
+- Excessively rounded cards.
+- Huge empty spaces.
+- Random colors.
+- Inconsistent component styles.
+- Unnecessary decorative graphics.
+- Unreadable tables.
+- Oversized dashboard statistics.
+
+# 3. GLOBAL LIGHT AND DARK MODE
+
+Implement a complete application-wide theme system.
+
+Every page and component must support both themes.
+
+Include a theme toggle in the main header and in account settings.
+
+Requirements:
+
+- Light mode.
+- Dark mode.
+- Smooth theme transitions.
+- Consistent sidebar appearance.
+- Properly adjusted cards.
+- Properly adjusted charts.
+- Properly adjusted tables.
+- Properly adjusted forms.
+- Properly adjusted dialogs.
+- Readable text in both modes.
+- Correct contrast.
+- Persistent user preference.
+
+Use CSS variables or a centralized theme provider.
+
+Do not implement dark mode only on the dashboard while leaving other pages in light mode.
+
+The public landing page, login, registration, marketplace, dashboards, reports, messaging, and settings must all support both themes.
+
+# 4. GLOBAL APPLICATION LAYOUT
+
+Create a shared application layout.
+
+For authenticated users, use:
+
+LEFT SIDEBAR:
+- GreenPath brand logo.
+- Dashboard navigation.
+- Role-specific menu items.
+- Expandable navigation groups.
+- Active route indicators.
+- Notification badges.
+- Collapsible sidebar.
+- Responsive mobile drawer.
+- Logout option.
+
+TOP HEADER:
+- Breadcrumb navigation.
+- Global search where appropriate.
+- Notification center.
+- Theme toggle.
+- Language selector.
+- User profile menu.
+- Profile picture.
+- User name and role.
+
+MAIN CONTENT:
+- Page title.
+- Descriptive subtitle.
+- Relevant actions.
+- Dashboard data.
+- Tables, charts, forms, and page content.
+
+The sidebar and header must remain consistent across all authenticated roles.
+
+Only navigation items and available functionality should change according to permissions.
+
+Do not create an entirely different design for each role.
+
+# 5. PUBLIC LANDING PAGE — COMPLETE EXPERIENCE
+
+Build the public landing page at `/`.
+
+This is the first experience visitors see.
+
+Include:
+
+## Hero section
+
+- GreenPath branding.
+- Professional agricultural hero imagery.
+- Strong headline.
+- Clear subtitle.
+- Create Account button.
+- Sign In button.
+- Explore Marketplace button.
+
+## How it works
+
+Show the marketplace process:
+
+1. Farmers register and publish agricultural products.
+2. Wholesalers discover and purchase products.
+3. Retailers purchase from wholesalers.
+4. Delivery drivers handle authorized shipments.
+5. Financial operations manage payment verification and releases.
+
+## Platform features
+
+- Agricultural marketplace.
+- Verified users.
+- Secure financial transactions.
+- Intelligent product recommendations.
+- Order management.
+- Delivery integration.
+- Multilingual AI assistance.
+- Administrative transparency.
+
+## Role introduction
+
+Show Farmer, Wholesaler, Retailer, and Driver experiences.
+
+## Additional sections
+
+- About GreenPath.
+- Why choose GreenPath.
+- How the platform protects users.
+- Frequently asked questions.
+- Testimonials.
+- Contact information.
+- Footer.
+- Registration and login calls to action.
+
+Use the existing WebsiteContent data structure to support dynamically editable landing page content.
+
+Do not hardcode content that should be controlled by the Super Administrator.
+
+# 6. AUTHENTICATION AND REGISTRATION
+
+Build the complete authentication experience.
+
+Pages:
+
+- `/login`
+- `/register`
+- `/forgot-password`
+- `/reset-password`
+
+## Login
+
+Include:
+- Email or supported login identifier.
+- Password.
+- Show/hide password.
+- Remember appropriate session behavior.
+- Forgot password.
+- Account lockout feedback.
+- Loading state.
+- Validation.
+- Clear error messages.
+
+Respect the existing three-failed-attempt lockout policy and configurable security settings.
+
+## Registration
+
+Build a professional multi-step registration interface.
+
+Support:
+
+- Farmer.
+- Wholesaler.
+- Retailer.
+- Driver.
+
+Registration fields must change based on selected role.
+
+Farmer registration:
+- Full name.
+- Age.
+- Sex.
+- Email.
+- Phone.
+- Agricultural license.
+- Product information.
+- Address and regional information.
+- Required documents.
+
+Driver registration:
+- Personal details.
+- Driver license information.
+- License expiry date.
+- Vehicle details where required.
+- Required verification documents.
+
+Wholesaler and retailer registration:
+- Personal/business information.
+- Contact information.
+- Regional address.
+- Required business documents.
+
+Use an Ethiopian administrative location structure:
+
+Region → Zone → Wereda → Kebele.
+
+For Addis Ababa, support the appropriate sub-city/kifle ketema structure.
+
+For Dire Dawa, support its relevant administrative structure.
+
+Create:
+- Step indicators.
+- Document upload previews.
+- Validation.
+- Save/progress feedback.
+- Review summary.
+- Registration submission confirmation.
+
+Never show users that an account is approved when it is only pending.
+
+# 7. ROLE-BASED DASHBOARDS
+
+Create a complete dashboard for every role.
+
+Every dashboard must use the same global design system while displaying relevant information and permissions.
+
+## A. FARMER DASHBOARD
+
+Route: `/farmer`
+
+Navigation:
+- Overview.
+- My Products.
+- Add Product.
+- Incoming Orders.
+- Order History.
+- Messages.
+- Notifications.
+- My Earnings.
+- Ratings and Reviews.
+- Profile.
+- Settings.
+
+Overview statistics:
+- Active listings.
+- Total listings.
+- Products sold.
+- Total earned (ETB).
+- Pending orders.
+- Unread messages.
+
+Product management:
+- Add products.
+- Edit products.
+- Delete or deactivate listings.
+- Manage availability.
+- Manage stock quantities.
+- Upload up to eight images.
+- Upload from desktop or use camera capture.
+- Preview images.
+- Reorder images.
+- Remove images.
+
+Order management:
+- View wholesaler orders.
+- Review order details.
+- Approve or reject.
+- View selling-in-process status.
+- View order history.
+
+Show meaningful sales charts and product performance.
+
+## B. WHOLESALER DASHBOARD
+
+Route: `/wholesaler`
+
+Navigation:
+- Overview.
+- Discover Products.
+- Recommendations.
+- My Orders.
+- Incoming Orders.
+- My Listings.
+- Inventory.
+- Favorite Farmers.
+- Messages.
+- Wallet.
+- Transactions.
+- Financial History.
+- Ratings.
+- Profile.
+- Settings.
+
+Statistics:
+- Total orders.
+- Total spent.
+- Favorite sellers.
+- Active listings.
+- Pending orders.
+- Pending payments.
+- Verified payments.
+
+Product discovery:
+- Personalized product feed.
+- Search.
+- Filters.
+- Category navigation.
+- Similar product recommendations.
+- Product detail pages.
+- Product image galleries.
+- Product inventory.
+
+The discovery experience should be modern and personalized.
+
+## C. RETAILER DASHBOARD
+
+Route: `/retailer`
+
+Navigation:
+- Overview.
+- Discover Products.
+- Recommendations.
+- My Orders.
+- Messages.
+- Favorite Wholesalers.
+- Wallet.
+- Transactions.
+- Purchase History.
+- Ratings.
+- Profile.
+- Settings.
+
+Statistics:
+- Available listings.
+- Total wholesalers.
+- Active communications.
+- Unread messages.
+- Pending orders.
+
+Retailers must be able to discover wholesaler products, place orders, manage orders, and communicate with wholesalers.
+
+## D. DRIVER DASHBOARD
+
+Route: `/driver`
+
+The Driver dashboard must respect the existing separate DriverApp architecture.
+
+Include:
+- Driver approval status.
+- Driver profile.
+- License verification.
+- Driver document status.
+- Continue to DriverApp.
+- Authorized shipment status.
+- Delivery fee agreement status where exposed by the marketplace integration.
+- Relevant notifications.
+
+The Continue to DriverApp action should represent the existing session integration.
+
+Do not invent an independent shipment marketplace or duplicate the separate DriverApp functionality.
+
+Respect the existing separation between the marketplace and DriverApp.
+
+Do not invent a new driver checkout, escrow, or financial settlement process.
+
+# 8. FINANCIAL MANAGER DASHBOARD — HIGH PRIORITY
+
+Route: `/financial-manager`
+
+This is one of the most important interfaces.
+
+It must look like a professional financial operations and analytics platform.
+
+Navigation:
+- Financial Overview.
+- Payment Verification.
+- Wallet Management.
+- Funding Requests.
+- Payout Requests.
+- Bank Accounts.
+- Escrow Orders.
+- Delivery Fee Reviews.
+- Regional Reports.
+- Financial Reports.
+- Transaction History.
+- Audit Logs.
+- Settings.
+
+## Financial overview
+
+Display:
+- Total transaction volume.
+- Total wallet balances.
+- Available balances.
+- Held balances.
+- Pending deposits.
+- Verified payments.
+- Flagged payments.
+- Pending releases.
+- Pending payouts.
+- Disputed orders.
+- Delivery fee agreements awaiting review.
+
+## Financial charts
+
+Create multiple professional visualizations using Recharts.
+
+Required charts:
+
+1. Daily financial transaction trend.
+2. Weekly financial performance.
+3. Monthly financial performance.
+4. Regional transaction distribution.
+5. Wallet balance distribution.
+6. Deposit and payout comparison.
+7. Pending versus verified payments.
+8. Payment method distribution.
+9. Delivery fee financial summary.
+10. Financial performance by user role.
+
+Use different meaningful chart colors.
+
+Do not use the same green color for every graph.
+
+Create:
+- Line charts.
+- Bar charts.
+- Stacked bar charts.
+- Donut charts.
+- Area charts.
+
+Every chart must have:
+- Meaningful labels.
+- Tooltips.
+- Legends where appropriate.
+- Date context.
+- Currency formatting in ETB.
+- Responsive behavior.
+- Empty-data handling.
+
+## Financial data filters
+
+Provide:
+- Today.
+- Yesterday.
+- Last 7 days.
+- Last 30 days.
+- This week.
+- This month.
+- Previous month.
+- Custom date range.
+- Region.
+- Zone.
+- Wereda.
+- User role.
+- Transaction status.
+- Payment type.
+
+All charts, summaries, and reports must update consistently when filters change.
+
+# 9. REGIONAL FINANCIAL REPORTING — CRITICAL REQUIREMENT
+
+Build a dedicated Regional Financial Reports module.
+
+The purpose is to allow authorized Financial Managers and Top User Administrators to understand financial performance across all regions.
+
+This is not just a simple regional user-count page.
+
+The reports must contain financial information.
+
+## Regional report overview
+
+Show:
+- Total financial transactions by region.
+- Total transaction amount (ETB).
+- Total deposits.
+- Total verified payments.
+- Total pending payments.
+- Total flagged payments.
+- Total payouts.
+- Held wallet balances.
+- Available wallet balances.
+- Regional financial performance.
+- Regional payment activity.
+
+## Geographic reporting hierarchy
+
+Allow filtering by:
+
+1. All Ethiopia.
+2. Region.
+3. Zone.
+4. Wereda.
+
+The Top User Administrator and authorized Financial Managers must be able to view the appropriate aggregated reports across their permitted administrative scope.
+
+Respect access permissions.
+
+A regional administrator must not gain access to financial records outside their authorized scope simply because a filter exists.
+
+## Regional comparison
+
+Create:
+- Regional financial comparison charts.
+- Regional transaction bar charts.
+- Weekly regional performance.
+- Monthly regional performance.
+- Daily financial activity.
+- Regional deposit comparisons.
+- Regional payment verification comparisons.
+- Regional payout comparisons.
+
+## Time-based reporting
+
+Support:
+- Daily reports.
+- Weekly reports.
+- Monthly reports.
+- Quarterly reports.
+- Yearly reports.
+- Custom date reports.
+
+## Regional report table
+
+Columns:
+- Region.
+- Total users.
+- Farmers.
+- Wholesalers.
+- Retailers.
+- Total transactions.
+- Total transaction value.
+- Verified payment value.
+- Pending payment value.
+- Payout value.
+- Available wallet balances.
+- Held wallet balances.
+
+The user-count columns should provide administrative context, while financial columns remain the main focus.
+
+Clicking a region must open a detailed report for that region.
+
+Allow drill-down:
+
+Region → Zone → Wereda → Financial activity.
+
+## Export
+
+Provide:
+- Export CSV.
+- Export PDF.
+- Print report.
+
+Exported reports should respect the active filters and the viewer's permissions.
+
+Every report must clearly show:
+- Report title.
+- Date range.
+- Geographic scope.
+- Generated date.
+- ETB currency.
+- Summary statistics.
+- Charts.
+- Detailed tables.
+
+IMPORTANT:
+
+Never invent financial figures or fabricate actual report results.
+
+Use clearly labeled mock data for the prototype. Connect the reporting components to actual backend data when available.
+
+# 10. USER ADMINISTRATOR DASHBOARD
+
+Route: `/admin`
+
+Navigation:
+- Overview.
+- Pending Registrations.
+- All Users.
+- Farmers.
+- Wholesalers.
+- Retailers.
+- Drivers.
+- User Verification.
+- Product Monitoring.
+- Reports.
+- Complaints.
+- Audit History.
+- Settings.
+
+Statistics:
+- Pending users.
+- Total users.
+- Active users.
+- Farmers.
+- Wholesalers.
+- Retailers.
+- Pending registrations.
+- Active listings.
+- Total orders.
+- Payment status summaries where permitted.
+
+User management:
+- Search users.
+- Filter by role.
+- Filter by status.
+- Filter by region.
+- Open individual user records.
+- Review registration documents.
+- Approve or reject according to permissions.
+- Suspend or reinstate where authorized.
+
+Respect the existing registration approval rules.
+
+Do not allow a lower-level administrator to bypass license verification or higher-level approval requirements.
+
+# 11. INDIVIDUAL USER REVIEW AND VERIFICATION — CRITICAL
+
+This must be a highly professional, comprehensive user-detail experience.
+
+When an authorized administrator opens an individual user, all relevant registration and verification information must be displayed in a clear and organized manner.
+
+Create a dedicated user detail page with tabs.
+
+## Tab 1: Personal Information
+
+Display:
+- Full legal name.
+- Profile photo.
+- User ID.
+- Email.
+- Phone.
+- Age, where collected.
+- Sex, where collected.
+- Account role.
+- Account status.
+- Registration date.
+- Last activity, if available.
+
+## Tab 2: Address and Location
+
+Display the complete registered administrative address:
+
+- Region.
+- Zone.
+- Wereda.
+- Kebele.
+- Sub-city or relevant administrative area.
+- Additional registered address information.
+
+Show the exact address in the private administrative review interface for authorized staff.
+
+Do not confuse private administrative visibility with public marketplace visibility.
+
+## Tab 3: Documents and Licenses
+
+This is extremely important.
+
+Display every document submitted by the user.
+
+For farmers:
+- Farmer license.
+- Relevant agricultural documents.
+- Additional submitted documents.
+
+For drivers:
+- Driver license.
+- License number.
+- License expiry date.
+- Vehicle-related documents where applicable.
+- Other required verification documents.
+
+For wholesalers and retailers:
+- Business licenses.
+- Business registration documents.
+- Other required documents.
+
+Provide:
+- Document preview.
+- Full-size viewing.
+- PDF preview where supported.
+- Download where permitted.
+- Upload date.
+- Verification status.
+- Expiry date where relevant.
+- Reviewer information.
+- Verification history.
+
+Make documents easy to inspect.
+
+Use a proper document viewer or preview panel rather than displaying only filenames.
+
+## Tab 4: Verification
+
+Show:
+- Overall verification status.
+- Identity verification.
+- License verification.
+- Document verification.
+- Expiry warnings.
+- Missing document alerts.
+- Verification history.
+
+## Tab 5: Activity
+
+Display:
+- Orders.
+- Products.
+- Payments where permitted.
+- Account events.
+- Administrative actions.
+- Relevant audit records.
+
+## Tab 6: Administrative Actions
+
+Provide authorized actions:
+- Approve.
+- Reject.
+- Request additional documents.
+- Suspend.
+- Reinstate.
+- Add internal administrative notes.
+
+Every action must require appropriate confirmation and must respect role permissions.
+
+Never expose sensitive documents to unauthorized roles.
+
+# 12. SUPER ADMINISTRATOR DASHBOARD
+
+Route: `/super-admin`
+
+Build a complete platform control center.
+
+Navigation:
+- Platform Overview.
+- Users.
+- Staff Management.
+- Administrative Hierarchy.
+- Registrations.
+- Marketplace Management.
+- Product Categories.
+- Financial Overview.
+- Regional Reports.
+- Platform Analytics.
+- Website Content.
+- System Configuration.
+- Security Settings.
+- Audit Logs.
+- API and Integration Health.
+
+Statistics:
+- Total users.
+- Pending users.
+- Approved users.
+- Suspended users.
+- Active listings.
+- Total orders.
+- Order value.
+- Seven-day payment volume.
+- Verified payments.
+- Pending payments.
+- Messages.
+- Notifications.
+- Platform health.
+
+## Dynamic platform configuration
+
+Provide settings for:
+- Platform logo.
+- Platform name.
+- Website titles.
+- Landing page content.
+- Homepage descriptions.
+- About section.
+- FAQ.
+- Contact information.
+- Product categories.
+- Supported locations.
+- Administrative configurations.
+- Security settings.
+- Login lockout configuration.
+
+Use the existing WebsiteContent and system settings structures where applicable.
+
+# 13. TOP USER ADMINISTRATOR
+
+Provide a dedicated administrative experience for the Top User Administrator.
+
+This role must support the administrative hierarchy and cross-regional visibility allowed by the actual permissions.
+
+Include:
+- All-region user overview.
+- Regional user statistics.
+- Regional reports.
+- Financial reports where explicitly permitted.
+- Staff management.
+- Regional administrator management.
+- Zone and Wereda management.
+- Registration monitoring.
+- Administrative audit history.
+
+Regional reporting must support filtering and drilling down through the administrative hierarchy.
+
+Do not automatically grant unrestricted financial transaction access merely because the user can view all regions.
+
+Implement the permissions according to the actual backend authorization model.
+
+# 14. GLOBAL MESSAGING SYSTEM
+
+Create one consistent professional messaging system.
+
+Available to authorized user roles.
+
+Include:
+- Conversation list.
+- Search.
+- Conversation categories.
+- Message history.
+- Text messaging.
+- Voice message interface.
+- Audio playback.
+- Read indicators.
+- Timestamps.
+- Order-related messages.
+- Shipment-related messages.
+- Notification badges.
+- Empty states.
+
+Respect the marketplace's communication privacy rules.
+
+Do not expose direct contact information or precise addresses before the required agreement and permissions are satisfied.
+
+# 15. ONE GLOBAL AI CHATBOT — STRICT REQUIREMENT
+
+There must be exactly ONE AI chatbot across the entire platform.
+
+Do not create separate chatbots for:
+- Landing page.
+- Farmer dashboard.
+- Wholesaler dashboard.
+- Retailer dashboard.
+- Driver dashboard.
+- Financial Manager dashboard.
+- Admin dashboard.
+- Super Admin dashboard.
+
+Instead, create one reusable global AI assistant component.
+
+It must be available throughout the public and authenticated experience.
+
+Display it as a floating assistant button in a consistent screen position.
+
+When opened, show a professional chat interface.
+
+The same assistant component must work across:
+- Landing page.
+- Login and registration where appropriate.
+- Every dashboard.
+- Marketplace.
+- Product pages.
+- Orders.
+- Messages.
+- Financial reports.
+- Settings.
+
+## AI assistant capabilities
+
+Design the frontend to support:
+- English.
+- Amharic.
+- Afaan Oromo.
+- Text conversation.
+- Voice recording.
+- Voice playback.
+- Conversation history.
+- Typing indicator.
+- Suggested questions.
+- Clear conversation.
+- Minimize and reopen.
+
+The assistant should understand the user's role and current context when the backend provides that information.
+
+For example:
+- Farmers: product listing and order assistance.
+- Wholesalers: product discovery and purchasing assistance.
+- Retailers: purchasing and order assistance.
+- Drivers: authorized shipment guidance.
+- Financial Managers: financial report explanations and navigation.
+- Administrators: platform navigation and permitted operational guidance.
+
+The chatbot must not bypass role permissions or expose private financial or personal information.
+
+Use one shared component and one consistent assistant identity.
+
+Do not duplicate chatbot implementations across pages.
+
+Prepare the interface for the existing Groq-powered AI integration without hardcoding API keys in frontend source code.
+
+# 16. MARKETPLACE PRODUCT PRIVACY — VERY IMPORTANT
+
+Create a modern agricultural product discovery experience.
+
+Users must be able to browse:
+- Products.
+- Product images.
+- Prices.
+- Quantity.
+- Product descriptions.
+- Product categories.
+- Seller names where appropriate.
+- Availability.
+- Similar recommendations.
+
+However, there is a strict privacy rule.
+
+## Public browsing privacy
+
+When users browse products, do NOT display:
+- Seller's exact address.
+- Seller's home location.
+- GPS coordinates.
+- Exact pickup location.
+- Exact distance to the seller.
+- Private contact information.
+
+Do not show a map pinpointing a farmer's or wholesaler's location.
+
+Do not display sensitive location information in product cards, search results, recommendation feeds, or public product details.
+
+You may display permitted general regional information when it does not reveal an exact location.
+
+For example:
+- Amhara Region.
+- Oromia Region.
+- Addis Ababa.
+
+## Private administrative access
+
+Authorized administrators may view registered user addresses and verification information in the individual user review interface.
+
+These two rules must coexist.
+
+Public marketplace privacy must never be weakened because administrators need private records.
+
+## Recommendation system
+
+Create personalized recommendations using:
+- Browsing history.
+- Search history.
+- Product categories.
+- Previous orders.
+- Product preferences.
+- Available product information.
+
+Do not use public GPS disclosure as a recommendation feature.
+
+# 17. PRODUCT DETAILS AND PRODUCT MANAGEMENT
+
+Create attractive product detail pages.
+
+Include:
+- Image gallery.
+- Full-size image viewing.
+- Product description.
+- Product category.
+- Quantity.
+- Unit of measurement.
+- Price per unit.
+- Availability.
+- Seller name where permitted.
+- Similar products.
+- Ordering actions.
+
+For farmers and wholesalers, include appropriate product management tools.
+
+Use the existing Product model concepts:
+
+- Title.
+- Description.
+- Category.
+- Quantity.
+- Unit of measure.
+- Price per unit.
+- Status.
+- Product type.
+- Owner.
+- Images.
+
+# 18. ORDER MANAGEMENT AND LIFECYCLE
+
+Build a complete order management interface.
+
+Use the existing marketplace lifecycle:
+
+Ordered → Seller Approval → Processing → Shipped → Delivered → Quality Confirmation → Payment Release → Completed.
+
+Also support relevant exception states:
+
+- Rejected.
+- Disputed.
+- Cancelled.
+
+Order details should show:
+- Order reference.
+- Buyer.
+- Seller.
+- Product.
+- Quantity.
+- Total amount.
+- Current status.
+- Date.
+- Communication.
+- Relevant shipment information.
+
+Create a clear timeline with status history.
+
+The same order must appear consistently in the appropriate buyer, seller, and authorized administrative dashboards.
+
+Do not invent state transitions that are unsupported by the backend.
+
+# 19. WALLET AND PAYMENT MANAGEMENT
+
+Create professional financial interfaces for eligible marketplace users.
+
+Support:
+- Available balance.
+- Held balance.
+- Funding requests.
+- Deposit history.
+- Payment history.
+- Transaction references.
+- Payment verification.
+- Receipts.
+- Chapa checkout interface.
+- Wallet transaction details.
+
+Use ETB as the currency.
+
+Respect the existing wallet model:
+- Available balance.
+- Held balance.
+- Append-only transaction records.
+
+Do not treat pending funds as available funds.
+
+Do not allow users to bypass financial approval.
+
+For financial staff, provide the appropriate payment review and wallet operations interfaces.
+
+For drivers, respect the separate DriverApp and marketplace integration boundaries.
+
+# 20. BANK ACCOUNT MANAGEMENT AND SETTINGS
+
+Every user must have a professional Settings section.
+
+Do not make settings an empty placeholder.
+
+Create a comprehensive account settings experience.
+
+Use a settings sidebar or tab navigation.
+
+## A. Profile Information
+
+Users can view and edit permitted profile information.
+
+Include:
+- Profile image.
+- Full name.
+- Email.
+- Phone.
+- Address.
+- Regional details.
+- Personal or business information.
+- Save changes.
+- Validation.
+
+Users must be able to manage their profile from their dashboard.
+
+Sensitive or verified fields must follow the backend's rules and verification requirements.
+
+## B. Bank Accounts
+
+Create a bank account management interface.
+
+Include:
+- Add bank account.
+- Bank name.
+- Account holder name.
+- Account number.
+- Account type where supported.
+- Primary bank account selection.
+- Verification status.
+- Edit or remove actions where allowed.
+- Verification history.
+
+Mask sensitive account numbers in normal views.
+
+Use secure confirmation dialogs.
+
+Do not expose bank details to unauthorized administrators or other users.
+
+The Financial Manager should have the permitted bank account review interface.
+
+## C. Security
+
+Include:
+- Change password.
+- Current sessions.
+- Login history where available.
+- Security notifications.
+- Account protection.
+- Two-factor settings only if supported by the backend.
+
+## D. Notifications
+
+Include:
+- Order notifications.
+- Payment notifications.
+- Message notifications.
+- Account notifications.
+- Shipment notifications.
+- Notification preferences.
+
+## E. Language
+
+Include:
+- English.
+- Amharic.
+- Afaan Oromo.
+
+## F. Appearance
+
+Include:
+- Light mode.
+- Dark mode.
+- System preference if supported.
+
+## G. Privacy
+
+Include:
+- Profile visibility preferences where supported.
+- Communication privacy.
+- Location privacy.
+- Data access information.
+
+## H. Account Management
+
+Include:
+- View account status.
+- View verification status.
+- Request account changes where permitted.
+- Logout.
+- Account deactivation request where supported.
+
+Every settings page must be professionally designed and functional in the prototype.
+
+# 21. REPORTS ACROSS THE PLATFORM
+
+Reports must not exist only inside the Financial Manager dashboard.
+
+Create appropriate reporting interfaces according to user permissions.
+
+Farmer:
+- Sales reports.
+- Product performance.
+- Order history.
+- Earnings summaries.
+
+Wholesaler:
+- Purchase reports.
+- Sales reports.
+- Inventory reports.
+- Transaction summaries.
+
+Retailer:
+- Purchase reports.
+- Order history.
+- Spending reports.
+
+Financial Manager:
+- Complete authorized financial reports.
+- Daily, weekly, monthly, quarterly, and yearly reports.
+- Regional financial reports.
+- Wallet reports.
+- Deposit reports.
+- Payout reports.
+- Payment verification reports.
+- Delivery fee reports.
+
+Top User Administrator:
+- Regional operational reports.
+- User statistics.
+- Regional performance.
+- Financial reports only within explicitly authorized permissions.
+
+User Administrator:
+- Registration reports.
+- User activity reports.
+- Verification reports.
+- Regional statistics within their scope.
+
+Super Administrator:
+- Platform-wide reports.
+- User analytics.
+- Marketplace analytics.
+- Financial summaries.
+- System activity reports.
+
+Every report must have appropriate filters and export functionality.
+
+Do not expose private financial information to unauthorized roles.
+
+# 22. AUDIT LOGS AND ADMINISTRATIVE HISTORY
+
+Create a professional audit log interface.
+
+Include:
+- Actor.
+- Action.
+- Target user.
+- Action category.
+- Timestamp.
+- Administrative scope.
+- Result.
+- Relevant reference.
+
+Provide:
+- Search.
+- Filters.
+- Date range.
+- User filters.
+- Action filters.
+- Pagination.
+- Detailed event view.
+
+Audit records should be read-only in the UI.
+
+Do not create fake administrative audit history in real backend mode.
+
+# 23. NOTIFICATION CENTER
+
+Create a global notification system.
+
+Include:
+- Unread count.
+- Notification categories.
+- Read/unread state.
+- Mark all as read.
+- Notification details.
+- Relevant page navigation.
+
+Notifications should be relevant to the current role.
+
+# 24. API INTEGRATION WITH THE EXISTING DJANGO BACKEND
+
+The frontend is intended to integrate with the existing GreenPath backend.
+
+Use the following known API structures as the integration reference.
+
+Authentication:
+- `/auth/login/`
+- `/auth/register/`
+- `/auth/me/`
+- `/auth/profile/`
+- `/auth/website-content/`
+
+Dashboards:
+- `/dashboard/farmer/`
+- `/dashboard/wholesaler/`
+- `/dashboard/retailer/`
+- `/dashboard/admin/`
+- `/dashboard/payments/`
+- `/dashboard/financial-operations/`
+
+Products:
+- `/products/farmer-listings/`
+- `/products/wholesaler-listings/`
+- `/products/categories/`
+
+Orders:
+- `/orders/`
+- `/orders/{id}/`
+
+Payments:
+- `/payments/`
+- `/payments/{id}/`
+- `/payments/{id}/verify/`
+- `/payments/{id}/flag/`
+
+Wallet:
+- `/wallet/`
+- `/wallet/transactions/`
+- `/wallet/funding/`
+- `/wallet/payouts/`
+
+Messaging:
+- `/chat/channels/`
+- `/chat/channels/{id}/messages/`
+
+Administration:
+- `/admin/pending-users/`
+- `/admin/users/`
+- `/admin/registrations/`
+
+Super Administration:
+- `/superadmin/health/`
+- `/superadmin/users/`
+- `/superadmin/settings/`
+
+IMPORTANT API RULES:
+
+1. Treat the listed routes as existing architecture references, not permission to invent undocumented request fields.
+2. Inspect the available API schema when integration begins.
+3. Do not invent API endpoints or payloads.
+4. Do not change backend business logic to accommodate a visual mockup.
+5. Use an Axios service layer.
+6. Create reusable API clients.
+7. Handle authentication and authorization correctly.
+8. Handle expired sessions and API errors.
+9. Use loading and error states.
+10. Do not store secrets in frontend source code.
+11. Use environment variables for configuration.
+12. Keep API response types organized.
+13. Preserve all existing backend workflows.
+
+For prototype mode, use clearly separated mock data providers.
+
+The application must not silently mix mock data with real financial data.
+
+# 25. RESPONSIVE DESIGN
+
+Every page must be responsive.
+
+Desktop:
+- Full sidebar.
+- Multi-column dashboards.
+- Large data tables.
+- Advanced filters.
+- Detailed charts.
+
+Tablet:
+- Collapsible sidebar.
+- Responsive grids.
+- Adaptive charts.
+- Responsive forms.
+
+Mobile:
+- Drawer navigation.
+- Compact header.
+- Stacked dashboard cards.
+- Mobile-friendly charts.
+- Responsive tables or card-based data presentation.
+- Touch-friendly controls.
+- Proper image galleries.
+- Mobile messaging.
+- Responsive settings pages.
+
+Test the visual layout at different screen sizes.
+
+# 26. ACCESSIBILITY AND PROFESSIONAL INTERACTIONS
+
+Implement:
+- Keyboard navigation.
+- Visible focus indicators.
+- Accessible form labels.
+- Appropriate contrast.
+- Accessible dialogs.
+- Confirmation dialogs.
+- Error messages.
+- Success feedback.
+- Skeleton loading.
+- Empty states.
+- Error states.
+- Pagination.
+- Search debouncing.
+- Tooltips where useful.
+
+All controls must perform their advertised frontend action.
+
+Do not create buttons that do nothing.
+
+If a feature is not connected to the backend yet, show a clear prototype/demo state rather than pretending the action succeeded.
+
+# 27. DEVELOPMENT PHASES
+
+Build the application systematically.
+
+PHASE 1 — FOUNDATION
+- React + Vite setup.
+- TypeScript.
+- Tailwind.
+- Router.
+- Shared design system.
+- Light/dark theme.
+- Global layout.
+- Sidebar.
+- Header.
+- Authentication shell.
+
+PHASE 2 — PUBLIC EXPERIENCE
+- Landing page.
+- Login.
+- Registration.
+- Forgot password.
+- Reset password.
+
+PHASE 3 — MARKETPLACE
+- Product discovery.
+- Product details.
+- Search.
+- Filters.
+- Recommendations.
+- Product management.
+
+PHASE 4 — USER DASHBOARDS
+- Farmer.
+- Wholesaler.
+- Retailer.
+- Driver.
+
+PHASE 5 — ADMINISTRATION
+- User Administrator.
+- Top User Administrator.
+- Regional and Wereda Administrators.
+- Super Administrator.
+- Individual user verification.
+
+PHASE 6 — FINANCIAL MANAGEMENT
+- Financial Manager.
+- Wallets.
+- Payments.
+- Funding.
+- Payouts.
+- Bank accounts.
+- Regional reports.
+- Daily/weekly/monthly analytics.
+- Exports.
+
+PHASE 7 — GLOBAL FEATURES
+- One global AI assistant.
+- Messaging.
+- Notifications.
+- Settings.
+- Profile management.
+- Audit logs.
+
+PHASE 8 — FINAL QUALITY AUDIT
+- Responsive testing.
+- Navigation testing.
+- Role permission testing.
+- Theme testing.
+- Accessibility.
+- Visual consistency.
+- Interaction testing.
+- Build validation.
+
+# 28. STRICT PRESERVATION AND IMPLEMENTATION RULES
+
+This is an existing real-world system.
+
+Do not redesign its business logic.
+
+Do not invent new roles.
+
+Do not remove existing functionality.
+
+Do not simplify important workflows just to make the UI easier.
+
+Do not create multiple AI chatbots.
+
+Do not expose exact product seller locations publicly.
+
+Do not expose sensitive personal documents to unauthorized users.
+
+Do not fabricate financial reporting results.
+
+Do not create a separate Next.js implementation.
+
+Do not generate only a landing page.
+
+Do not use static screenshots as substitutes for working frontend components.
+
+Use mock data only when actual backend integration is unavailable, and clearly separate it from real API data.
+
+Prioritize the accuracy of the existing GreenPath workflows.
+
+# 29. FINAL DELIVERABLE
+
+Generate a complete React.js + Vite application.
+
+The application must include:
+
+- Complete public landing page.
+- Authentication.
+- Multi-role registration.
+- All role-based dashboards.
+- Product marketplace.
+- Product management.
+- Order management.
+- Messaging.
+- One global multilingual AI assistant.
+- Financial Manager dashboard.
+- Regional financial reporting.
+- Top User Administrator dashboard.
+- Super Administrator dashboard.
+- Individual user verification and document review.
+- Wallet and payment interfaces.
+- Bank account management.
+- User profile management.
+- Comprehensive settings.
+- Light and dark themes.
+- Notifications.
+- Audit logs.
+- CSV/PDF reporting interfaces.
+- Responsive desktop, tablet, and mobile layouts.
+
+Most importantly:
+
+GENERATE THE ACTUAL APPLICATION CODE.
+
+Make the application immediately viewable in the Google AI Studio live preview.
+
+Make the frontend navigable and interactive.
+
+Prioritize excellent UI/UX, consistent Green-700 branding, accurate business workflows, and professional data visualization.
+
+Do not stop after the initial landing page.
+
+Continue until the complete application structure and all major role-based pages are generated.
+
+The final result must look and feel like a premium international agricultural marketplace and enterprise financial management platform.

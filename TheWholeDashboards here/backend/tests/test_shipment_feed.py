@@ -186,6 +186,8 @@ def test_fee_agreement_event_records_acceptance_without_financial_effects(
     assert str(saved.amount) == "375.00"
     assert saved.currency == "ETB"
     assert saved.buyer_accepted_at == saved.driver_accepted_at
+    assert saved.pricing_model_snapshot == ""
+    assert saved.pricing_configuration_snapshot == {}
     assert authorized_shipment.order.wallet_transactions.count() == 0
     _validate_page(page_for(agreement), 2, 10)
     assert _apply_page(page_for(agreement), 2)["processed"] == 0

@@ -460,8 +460,10 @@ class WholesalerListingViewSet(_BaseListingViewSet):
         if self.action in ("create", "my", "mine"):
             return [IsWholesaler()]
         if self.action == "list":
-            # Retailers browse the marketplace; a wholesaler sees its own re-lists.
-            return [IsAuthenticatedRole((Role.RETAILER, Role.WHOLESALER))]
+            # Retailers browse the marketplace; a wholesaler sees its own
+            # re-lists; admins keep read-only oversight (matches reader_roles
+            # and farmer-listings, which already admits User Admin).
+            return [IsAuthenticatedRole(self.reader_roles)]
         return super().get_permissions()
 
 

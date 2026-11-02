@@ -3,6 +3,8 @@ from decimal import Decimal
 
 import pytest
 
+from users.models import AuditLog
+
 from payments.models import (
     BusinessAgreement,
     Order,
@@ -11,6 +13,8 @@ from payments.models import (
     Review,
     Wallet,
     WalletTransaction,
+    WalletFundingRequest,
+    WalletPayoutRequest,
 )
 
 pytestmark = pytest.mark.django_db
@@ -87,6 +91,172 @@ def test_funding_is_pending_until_finance_verifies(api, farmer, financial_manage
     assert WalletTransaction.objects.filter(
         wallet=wallet, transaction_type="FUNDING"
     ).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "/api/v1/wallet/funding/00000000-0000-0000-0000-000000000000/review/",
+            {"approve": False, "notes": "Not found"},
+        ),
+        (
+            "/api/v1/wallet/payouts/00000000-0000-0000-0000-000000000000/review/",
+            {"approve": False, "notes": "Not found"},
+        ),
+    ],
+)
+def test_wallet_reviews_return_404_for_missing_requests(
+    api, financial_manager, path, payload
+):
+    api.force_authenticate(user=financial_manager)
+    response = api.post(path, payload, format="json")
+    assert response.status_code == 404, response.data
+
+
+def test_funding_approval_is_single_credit_and_refreshes_financial_manager_queue(
+    api, farmer, financial_manager
+):
+    wallet = Wallet.objects.create(user=farmer, available_balance="35.00", held_balance="12.00")
+    funding = WalletFundingRequest.objects.create(
+        wallet=wallet,
+        amount="80.00",
+        payment_method="Bank Transfer",
+        external_reference="APPROVE-FUNDING-INTEGRATION-001",
+    )
+    api.force_authenticate(user=financial_manager)
+
+    queue_before = api.get("/api/v1/wallet/funding/")
+    assert queue_before.status_code == 200
+    assert str(funding.pk) in {row["id"] for row in queue_before.data["results"]}
+
+    response = api.post(
+        f"/api/v1/wallet/funding/{funding.pk}/review/",
+        {"approve": True, "notes": "Test transfer confirmed."},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["funding_request"]["status"] == "VERIFIED"
+    wallet.refresh_from_db()
+    funding.refresh_from_db()
+    assert wallet.available_balance == Decimal("115.00")
+    assert wallet.held_balance == Decimal("12.00")
+    assert funding.reviewed_by_id == financial_manager.pk
+    assert funding.review_notes == "Test transfer confirmed."
+    transactions = WalletTransaction.objects.filter(
+        wallet=wallet, transaction_type="FUNDING", reference=f"FUNDING-{funding.pk}"
+    )
+    assert transactions.count() == 1
+    transaction = transactions.get()
+    assert transaction.amount == Decimal("80.00")
+    assert transaction.available_delta == Decimal("80.00")
+    assert AuditLog.objects.filter(
+        actor=financial_manager,
+        action="wallet_funding_verified",
+        target=str(funding.pk),
+    ).count() == 1
+
+    duplicate = api.post(
+        f"/api/v1/wallet/funding/{funding.pk}/review/",
+        {"approve": True, "notes": "Duplicate approval must fail."},
+        format="json",
+    )
+    assert duplicate.status_code == 400
+    wallet.refresh_from_db()
+    assert wallet.available_balance == Decimal("115.00")
+    assert transactions.count() == 1
+    assert AuditLog.objects.filter(
+        actor=financial_manager,
+        action="wallet_funding_verified",
+        target=str(funding.pk),
+    ).count() == 1
+
+    pending_after = api.get("/api/v1/wallet/funding/?status=PENDING")
+    assert pending_after.status_code == 200
+    assert str(funding.pk) not in {row["id"] for row in pending_after.data["results"]}
+    operations = api.get("/api/v1/dashboard/financial-operations/")
+    assert operations.status_code == 200
+    role = operations.data["wallets"]["by_role"]["FARMER"]
+    assert Decimal(role["available_balance"]) >= Decimal("115.00")
+
+
+def test_funding_rejection_preserves_balance_and_records_review(
+    api, farmer, financial_manager
+):
+    wallet = Wallet.objects.create(user=farmer, available_balance="35.00")
+    funding = WalletFundingRequest.objects.create(
+        wallet=wallet,
+        amount="80.00",
+        payment_method="Bank Transfer",
+        external_reference="REJECT-FUNDING-001",
+    )
+    api.force_authenticate(user=financial_manager)
+    response = api.post(
+        f"/api/v1/wallet/funding/{funding.pk}/review/",
+        {"approve": False, "notes": "Transfer evidence is invalid."},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    funding.refresh_from_db()
+    wallet.refresh_from_db()
+    assert funding.status == "REJECTED"
+    assert funding.reviewed_by_id == financial_manager.pk
+    assert funding.review_notes == "Transfer evidence is invalid."
+    assert wallet.available_balance == Decimal("35.00")
+    assert not WalletTransaction.objects.filter(wallet=wallet).exists()
+    assert AuditLog.objects.filter(
+        actor=financial_manager, action="wallet_funding_rejected", target=str(funding.pk)
+    ).count() == 1
+    queue = api.get("/api/v1/wallet/funding/?status=PENDING")
+    assert queue.status_code == 200
+    assert str(funding.pk) not in {row["id"] for row in queue.data["results"]}
+    duplicate = api.post(
+        f"/api/v1/wallet/funding/{funding.pk}/review/",
+        {"approve": False, "notes": "Duplicate rejection must fail."},
+        format="json",
+    )
+    assert duplicate.status_code == 400
+    wallet.refresh_from_db()
+    assert wallet.available_balance == Decimal("35.00")
+    assert AuditLog.objects.filter(
+        actor=financial_manager, action="wallet_funding_rejected", target=str(funding.pk)
+    ).count() == 1
+
+
+def test_funding_rejection_requires_reason_and_preserves_pending_request(
+    api, farmer, financial_manager
+):
+    wallet = Wallet.objects.create(user=farmer, available_balance="35.00")
+    funding = WalletFundingRequest.objects.create(
+        wallet=wallet,
+        amount="80.00",
+        payment_method="Bank Transfer",
+        external_reference="REJECT-FUNDING-INTEGRATION-002",
+    )
+    api.force_authenticate(user=financial_manager)
+    response = api.post(
+        f"/api/v1/wallet/funding/{funding.pk}/review/",
+        {"approve": False, "notes": "  "},
+        format="json",
+    )
+    assert response.status_code == 400
+    funding.refresh_from_db()
+    wallet.refresh_from_db()
+    assert funding.status == "PENDING"
+    assert wallet.available_balance == Decimal("35.00")
+    assert not WalletTransaction.objects.filter(wallet=wallet).exists()
+    assert not AuditLog.objects.filter(target=str(funding.pk)).exists()
+
+
+def test_payout_review_requires_financial_manager_role(api, farmer):
+    api.force_authenticate(user=farmer)
+    response = api.post(
+        "/api/v1/wallet/payouts/00000000-0000-0000-0000-000000000000/review/",
+        {"approve": False, "notes": "Not allowed"},
+        format="json",
+    )
+    assert response.status_code == 403
 
 
 def test_payout_reservation_is_returned_when_finance_rejects(

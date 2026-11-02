@@ -35,6 +35,8 @@ class UserSerializer(serializers.ModelSerializer):
     permissions = serializers.SerializerMethodField()
     financially_verified = serializers.BooleanField(read_only=True)
     is_online = serializers.BooleanField(read_only=True)
+    business_name = serializers.SerializerMethodField()
+    business_address = serializers.SerializerMethodField()
     password = serializers.CharField(write_only=True, min_length=8, required=True)
 
     class Meta:
@@ -43,6 +45,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id", "full_name", "email", "password", "phone", "location",
             "profile_photo", "latitude", "longitude", "role", "status", "role_display",
             "status_display", "rejection_reason", "privacy_policy_accepted",
+            "business_name", "business_address",
             "permissions", "financially_verified", "is_online", "created_at",
             "updated_at",
         ]
@@ -54,6 +57,16 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_permissions(self, obj):
         return obj.get_role_permissions()
+
+    @extend_schema_field(serializers.CharField(allow_blank=True))
+    def get_business_name(self, obj):
+        registration = getattr(obj, "registration", None)
+        return getattr(registration, "business_name", "") or ""
+
+    @extend_schema_field(serializers.CharField(allow_blank=True))
+    def get_business_address(self, obj):
+        registration = getattr(obj, "registration", None)
+        return getattr(registration, "business_address", "") or ""
 
     def validate_role(self, value):
         # FR-SA-02: admin sub-roles are only granted by the Super Admin.
@@ -120,12 +133,41 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
-    """Self-service profile edit. Role and status are never client-writable."""
+    """Self-service profile edit. Role and status are never client-writable.
+
+    ``business_name`` and ``business_address`` live on ``UserRegistration``
+    (the registration dossier), so they are written through to that record.
+    They stay bound to the admin-configured PROFILE field settings: a field an
+    administrator has locked after approval cannot be changed here.
+    """
+
+    business_name = serializers.CharField(
+        max_length=255, required=False, allow_blank=True
+    )
+    business_address = serializers.CharField(
+        max_length=500, required=False, allow_blank=True
+    )
 
     class Meta:
         model = User
-        fields = ["full_name", "phone"]
-        extra_kwargs = {field: {"required": False} for field in fields}
+        fields = ["full_name", "phone", "email", "business_name", "business_address"]
+        extra_kwargs = {
+            field: {"required": False}
+            for field in ("full_name", "phone", "email")
+        }
+
+    def validate_email(self, value):
+        email = (value or "").strip()
+        if not email:
+            raise serializers.ValidationError("Email address cannot be empty.")
+        duplicate = User.objects.filter(email__iexact=email)
+        if self.instance is not None:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise serializers.ValidationError(
+                "Another account already uses this email address."
+            )
+        return email
 
     def validate(self, attrs):
         errors = {}
@@ -138,6 +180,10 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             )
 
         user = self.instance
+        registration = getattr(user, "registration", None)
+        is_approved = bool(
+            registration is not None and registration.status == "APPROVED"
+        )
         for field_key in ("full_name", "phone"):
             if field_key not in attrs:
                 continue
@@ -153,9 +199,46 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             ):
                 errors[field_key] = "This field is not editable in your profile."
 
+        # Business fields are dossier data: editable until administrators lock
+        # them for an approved account.
+        for field_key in ("business_name", "business_address"):
+            if field_key not in attrs:
+                continue
+            configuration = RegistrationFieldConfiguration.objects.filter(
+                stage=RegistrationFieldConfiguration.Stage.PROFILE,
+                field_key=field_key,
+            ).first()
+            if (
+                configuration is None
+                or user.role not in configuration.roles
+                or not configuration.visible
+                or (is_approved and not configuration.editable_after_approval)
+            ):
+                errors[field_key] = "This field is not editable in your profile."
+
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
+
+    def update(self, instance, validated_data):
+        business_name = validated_data.pop("business_name", None)
+        business_address = validated_data.pop("business_address", None)
+        user = super().update(instance, validated_data)
+        if (business_name is not None or business_address is not None) and hasattr(
+            user, "registration"
+        ):
+            registration = user.registration
+            updated = []
+            if business_name is not None:
+                registration.business_name = business_name.strip()
+                updated.append("business_name")
+            if business_address is not None:
+                registration.business_address = business_address.strip()
+                updated.append("business_address")
+            if updated:
+                updated.append("updated_at")
+                registration.save(update_fields=updated)
+        return user
 
 
 class PublicUserSerializer(serializers.ModelSerializer):

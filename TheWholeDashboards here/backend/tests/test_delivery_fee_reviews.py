@@ -304,3 +304,34 @@ def test_stale_proposal_revision_cannot_be_reviewed(
     assert response.status_code == 409
     assert not MarketplaceDeliveryFeeReview.objects.exists()
     assert not MarketplaceIntegrationOutbox.objects.exists()
+
+
+def test_agreement_list_supports_historical_audit_filters(
+    api, financial_manager, delivery_fee_agreement, order
+):
+    api.force_authenticate(user=financial_manager)
+    now = timezone.now()
+    MarketplaceDeliveryFeeReview.objects.create(
+        agreement=delivery_fee_agreement,
+        decision_event_id=uuid.uuid4(),
+        actor=financial_manager,
+        reviewer_role=Role.FINANCIAL_MANAGER,
+        authorization_context="historical-audit-test",
+        decision=MarketplaceDeliveryFeeReview.Decision.APPROVED,
+        proposal_version=1,
+        decided_at=now,
+    )
+    url = "/api/v1/payments/delivery-fee-agreements/"
+
+    assert api.get(url, {"status": "all"}).json()["count"] == 1
+    assert api.get(url, {"status": "all", "search": order.reference}).json()["count"] == 1
+    assert api.get(url, {"status": "all", "search": "no-such-order"}).json()["count"] == 0
+
+    recorded_day = timezone.localtime(delivery_fee_agreement.recorded_at).date().isoformat()
+    decided_day = timezone.localtime(now).date().isoformat()
+    assert api.get(url, {"status": "all", "recorded_from": recorded_day}).json()["count"] == 1
+    assert api.get(url, {"status": "all", "decided_from": decided_day}).json()["count"] == 1
+    assert api.get(url, {"status": "all", "decided_to": "2000-01-01"}).json()["count"] == 0
+
+    invalid = api.get(url, {"status": "all", "recorded_from": "not-a-date"})
+    assert invalid.status_code == 400

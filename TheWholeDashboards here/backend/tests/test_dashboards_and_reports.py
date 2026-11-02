@@ -255,6 +255,7 @@ def test_financial_operations_summary_aggregates_wallet_queues(
         "count": 2,
         "available_balance": "150.75",
         "held_balance": "7.50",
+        "total_balance": "158.25",
         "by_role": {
             "FARMER": {
                 "count": 1,
@@ -277,6 +278,87 @@ def test_financial_operations_summary_aggregates_wallet_queues(
         "count": 0,
         "requires_review_count": 0,
     }
+    assert response.data["revenue"]["available"] is False
+    assert response.data["revenue"]["revenue"] is None
+    assert response.data["activity"]["orders"]["gmv"] == "0.00"
+    assert response.data["period"]["days"] == 30
+
+
+def test_financial_operations_summary_period_and_activity_reconcile(
+    api, financial_manager, farmer, wholesaler, farmer_product
+):
+    from django.utils import timezone
+
+    wallet, _ = Wallet.objects.get_or_create(user=farmer)
+    submitted = timezone.now()
+    approved = WalletFundingRequest.objects.create(
+        wallet=wallet,
+        amount=Decimal("70.00"),
+        payment_method="Bank Transfer",
+        external_reference="OVERVIEW-FUND-OK",
+        status=FundingStatus.VERIFIED,
+        submitted_at=submitted,
+        reviewed_at=submitted,
+        reviewed_by=financial_manager,
+    )
+    pending = WalletFundingRequest.objects.create(
+        wallet=wallet,
+        amount=Decimal("30.00"),
+        payment_method="Telebirr",
+        external_reference="OVERVIEW-FUND-PENDING",
+        status=FundingStatus.AWAITING_APPROVAL,
+        submitted_at=submitted,
+    )
+    payout = WalletPayoutRequest.objects.create(
+        wallet=wallet,
+        amount=Decimal("20.00"),
+        destination="masked destination",
+        status=PayoutStatus.PAID,
+        submitted_at=submitted,
+        reviewed_at=submitted,
+        reviewed_by=financial_manager,
+    )
+    payment = _payment(
+        wholesaler, farmer, farmer_product, "125.00", status=PaymentStatus.VERIFIED
+    )
+    order = Order.objects.create(
+        reference="OVERVIEW-GMV-1",
+        wholesaler=wholesaler,
+        farmer=farmer,
+        product=farmer_product,
+        quantity=Decimal("5"),
+        total_amount=Decimal("250.00"),
+        status=OrderStatus.COMPLETED,
+    )
+    api.force_authenticate(user=financial_manager)
+    response = api.get(
+        "/api/v1/dashboard/financial-operations/",
+        {"date_from": submitted.date().isoformat(), "date_to": submitted.date().isoformat()},
+    )
+
+    assert response.status_code == 200, response.data
+    activity = response.data["activity"]
+    assert activity["funding"]["requested"] == {"count": 2, "amount": "100.00"}
+    assert activity["funding"]["approved"] == {"count": 1, "amount": "70.00"}
+    assert activity["funding"]["pending_current"] == {"count": 1, "amount": "30.00"}
+    assert activity["payouts"]["paid"] == {"count": 1, "amount": "20.00"}
+    assert activity["orders"]["gmv"] == "250.00"
+    assert activity["orders"]["completed_count"] == 1
+    assert activity["payments"]["verified_amount"] == "125.00"
+    assert response.data["revenue"]["available"] is False
+    assert response.data["revenue"]["gross_profit"] is None
+    assert response.data["revenue"]["net_profit"] is None
+    assert approved.pk and pending.pk and payout.pk and payment.pk and order.pk
+
+
+def test_financial_operations_summary_rejects_invalid_period(api, financial_manager):
+    api.force_authenticate(user=financial_manager)
+    response = api.get(
+        "/api/v1/dashboard/financial-operations/",
+        {"date_from": "not-a-date", "date_to": "2026-01-01"},
+    )
+    assert response.status_code == 400
+    assert "date_from" in response.data["error"]
 
 
 def test_financial_operations_summary_is_financial_manager_only(api, user_admin):
