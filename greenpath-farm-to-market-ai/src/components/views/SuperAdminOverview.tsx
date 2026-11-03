@@ -1,0 +1,208 @@
+/**
+ * Super Admin command center — comprehensive overview using real data from
+ * GET /api/v1/auth/admin-overview/. Charts, KPIs, activity, quick actions.
+ */
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts';
+import { Activity, AlertTriangle, ArrowRight, Users, ShoppingCart, Wallet, Truck, LifeBuoy, Tag, TrendingUp, FileText, DollarSign,
+} from 'lucide-react';
+import { apiClient } from '../../services/apiClient';
+import { formatApiError } from '../../lib/apiErrors';
+
+const ROLE_COLORS = ['#15803D', '#0ea5e9', '#8b5cf6', '#f59e0b', '#64748b', '#ec4899', '#ef4444', '#14b8a6', '#a3e635', '#6366f1', '#f97316', '#06b6d4', '#84cc16'];
+
+interface OverviewData {
+  users: { total: number; pending: number; by_role: Record<string, number>; new_7d: number };
+  orders: { total: number; completed: number; pending: number; disputed: number; gmv: string; new_7d: number };
+  wallet: { available: string; held: string };
+  financials: { revenue: string; expenses: string; payroll: string };
+  freight: { open: number; assigned: number; completed: number; pending_bids: number };
+  support: { open: number; unanswered: number; urgent: number };
+  discounts: { active_campaigns: number; total_redemptions: number; total_discount_amount: string };
+  wishlist_count: number;
+  recent_audit: { action: string; detail: string; created_at: string }[];
+}
+
+function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={`p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 ${className ?? ''}`}>{children}</div>;
+}
+
+function Kpi({ label, value, sub, icon: Icon, color }: { label: string; value: string | number; sub?: string; icon: any; color?: string }) {
+  return (
+    <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">{label}</span>
+        <Icon className={`w-4 h-4 ${color ?? 'text-slate-400'}`} />
+      </div>
+      <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">{value}</div>
+      {sub && <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }> = ({ onNavigate }) => {
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setError(''); setLoading(true);
+    try {
+      const res = await apiClient.get('/auth/admin-overview/');
+      setData(res.data);
+    } catch (err) {
+      setError(formatApiError(err, 'Overview data could not be loaded.'));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (loading) return <div className="p-8 text-center text-xs text-slate-500">Loading platform overview…</div>;
+  if (error) return <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{error}</div>;
+  if (!data) return null;
+
+  const roleData = Object.entries(data.users.by_role)
+    .map(([role, count]) => ({ name: role.replace(/_/g, ' '), count }))
+    .sort((a, b) => b.count - a.count);
+
+  const orderStatus = [
+    { name: 'Completed', value: data.orders.completed, color: '#15803D' },
+    { name: 'Pending', value: data.orders.pending, color: '#f59e0b' },
+    { name: 'Disputed', value: data.orders.disputed, color: '#ef4444' },
+  ].filter(d => d.value > 0);
+
+  const quickActions = [
+    { label: 'Manage Users', view: 'all_users', icon: Users, count: data.users.total },
+    { label: 'Freight Bidding', view: 'freight_bids', icon: Truck, count: data.freight.open },
+    { label: 'Support Inbox', view: 'support_management', icon: LifeBuoy, count: data.support.open },
+    { label: 'Discounts', view: 'discount_management', icon: Tag, count: data.discounts.active_campaigns },
+    { label: 'Audit Logs', view: 'audit_logs', icon: FileText, count: data.recent_audit.length },
+    { label: 'Orders', view: 'orders', icon: ShoppingCart, count: data.orders.total },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {quickActions.map((qa) => (
+          <button
+            key={qa.view}
+            onClick={() => onNavigate(qa.view)}
+            className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#15803D] hover:shadow-md transition-all text-left group"
+          >
+            <qa.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-1.5" />
+            <div className="text-xs font-bold text-slate-800 dark:text-slate-100">{qa.label}</div>
+            <div className="text-[10px] text-slate-400 mt-0.5">{qa.count} records</div>
+            <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-emerald-500 transition-colors mt-1" />
+          </button>
+        ))}
+      </div>
+
+      {/* KPI Row 1 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi label="Total Users" value={data.users.total} sub={`+${data.users.new_7d} this week`} icon={Users} color="text-emerald-600" />
+        <Kpi label="Pending Registrations" value={data.users.pending} sub="Need review" icon={AlertTriangle} color={data.users.pending > 0 ? 'text-amber-600' : undefined} />
+        <Kpi label="Platform GMV" value={`${Number(data.orders.gmv).toLocaleString()} ETB`} sub={`${data.orders.new_7d} new orders this week`} icon={ShoppingCart} color="text-emerald-600" />
+        <Kpi label="Wallet Held (Escrow)" value={`${Number(data.wallet.held).toLocaleString()} ETB`} sub="Locked pending delivery" icon={Wallet} color="text-amber-600" />
+      </div>
+
+      {/* KPI Row 2 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi label="Platform Revenue" value={`${Number(data.financials.revenue).toLocaleString()} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" />
+        <Kpi label="Payroll" value={`${Number(data.financials.payroll).toLocaleString()} ETB`} sub="Staff salaries paid" icon={Users} />
+        <Kpi label="Freight Assigned" value={`${data.freight.assigned} / ${data.freight.assigned + data.freight.open}`} sub="Deliveries with drivers" icon={Truck} />
+        <Kpi label="Support Open" value={data.support.open} sub={`${data.support.unanswered} unanswered`} icon={LifeBuoy} color={data.support.unanswered > 0 ? 'text-amber-600' : undefined} />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Users by Role</div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={roleData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={110} />
+                <Tooltip />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={14}>
+                  {roleData.map((_, i) => <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Order Status</div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={orderStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4}
+                  label={({ name, value }) => `${name}: ${value}`}>
+                  {orderStatus.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
+
+      {/* Financial Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="!border-emerald-200 dark:!border-emerald-800">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Platform Revenue</span>
+          </div>
+          <div className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
+            {Number(data.financials.revenue).toLocaleString()} ETB
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">Commission + delivery service fees</div>
+        </Card>
+        <Card className="!border-violet-200 dark:!border-violet-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Tag className="w-4 h-4 text-violet-600" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Active Campaigns</span>
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">{data.discounts.active_campaigns}</div>
+          <div className="text-[11px] text-slate-400 mt-1">
+            {data.discounts.total_redemptions} redemptions · {Number(data.discounts.total_discount_amount).toLocaleString()} ETB given
+          </div>
+        </Card>
+        <Card className="!border-sky-200 dark:!border-sky-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet className="w-4 h-4 text-sky-600" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Wallet Available</span>
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">
+            {Number(data.wallet.available).toLocaleString()} ETB
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">{Number(data.wallet.held).toLocaleString()} ETB held in escrow</div>
+        </Card>
+      </div>
+
+      {/* Recent Activity */}
+      <Card>
+        <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-1.5">
+          <Activity className="w-4 h-4 text-emerald-600" /> Recent Platform Activity
+        </div>
+        <div className="space-y-1 max-h-56 overflow-y-auto">
+          {data.recent_audit.map((a, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs border-b border-slate-50 dark:border-slate-800/50 pb-1">
+              <span className="font-mono text-[10px] text-slate-400 whitespace-nowrap">{new Date(a.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-200 min-w-32">{a.action.replace(/_/g, ' ')}</span>
+              <span className="text-slate-400 truncate">{a.detail}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+};

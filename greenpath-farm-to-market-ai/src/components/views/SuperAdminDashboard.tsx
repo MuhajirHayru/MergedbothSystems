@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../services/apiClient';
+import { SuperAdminOverview } from './SuperAdminOverview';
 import { formatApiError } from '../../lib/apiErrors';
 import { useApp } from '../../context/AppContext';
 import {
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react';
 
 export const SuperAdminDashboard: React.FC = () => {
-  const { platformConfig, updatePlatformConfig, allUsers, orders, wallet, setNotification } = useApp();
+  const { platformConfig, updatePlatformConfig, allUsers, orders, wallet, setNotification, setActiveView } = useApp();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'content' | 'security' | 'categories' | 'health' | 'finance'>('overview');
   const [financialRows, setFinancialRows] = useState<any[]>([]);
@@ -197,40 +198,11 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-          <div className="text-xs text-slate-500">Total Registered Users</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-            {allUsers.length} Users
-          </div>
-          <div className="text-[11px] text-emerald-600 font-semibold mt-0.5">Across 11 Federal Regions</div>
-        </div>
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-          <div className="text-xs text-slate-500">Gross Platform Volume</div>
-          <div className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-1">
-            {wallet.totalVolumeETB.toLocaleString()} ETB
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Settled via Chapa Escrow</div>
-        </div>
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-          <div className="text-xs text-slate-500">Security Lockout Policy</div>
-          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-            {platformConfig.security.maxFailedAttempts} Attempts
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">
-            {platformConfig.security.lockoutDurationMinutes} min lockout duration
-          </div>
-        </div>
-        <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-          <div className="text-xs text-slate-500">System Integration Status</div>
-          <div className="text-2xl font-bold text-emerald-600 mt-1 flex items-center gap-1.5">
-            <CheckCircle2 className="w-5 h-5" />
-            <span>100% Operational</span>
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Django API · Chapa · AI Engine</div>
-        </div>
-      </div>
+      {activeTab === 'overview' && (
+        <SuperAdminOverview onNavigate={setActiveView} />
+      )}
+
+
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2 text-xs font-semibold">
