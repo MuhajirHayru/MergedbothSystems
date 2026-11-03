@@ -486,7 +486,7 @@ export const RegisterPage: React.FC = () => {
   // Driver specific
   const [driverLicenseGrade, setDriverLicenseGrade] = useState('Commercial Grade 3 (Heavy Freight)');
   const [vehicleModel, setVehicleModel] = useState('Isuzu FSR Cargo Truck (10 Quintal)');
-  const [vehiclePlate, setVehiclePlate] = useState('3-B-89210 ET');
+  const [vehiclePlate, setVehiclePlate] = useState('');
   const [vehicleCapacityTons, setVehicleCapacityTons] = useState(7.5);
   const [insurancePolicyNumber, setInsurancePolicyNumber] = useState('NIC-CARGO-2026-8819');
 

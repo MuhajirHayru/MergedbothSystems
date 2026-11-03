@@ -27,6 +27,13 @@ export const LandingPage: React.FC = () => {
   const { setCurrentRole, setActiveView, setAiModalOpen, language, platformConfig } = useApp();
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
+  const [publicStats, setPublicStats] = useState<null | { stats: { total_users: number; total_regions: number; total_drivers: number } }>(null);
+  useEffect(() => {
+    fetch("/api/v1/auth/public-stats/")
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setPublicStats(d); })
+      .catch(() => undefined);
+  }, []);
   const [landingBanners, setLandingBanners] = useState<{ id: number; title: string; description: string; image_url: string | null; destination_url: string }[]>([]);
   useEffect(() => {
     let cancelled = false;

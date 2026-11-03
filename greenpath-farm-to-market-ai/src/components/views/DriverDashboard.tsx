@@ -64,13 +64,13 @@ export const DriverDashboard: React.FC = () => {
               </span>
             </div>
             <div className="text-xs text-slate-200 mt-0.5">
-              Plate: <strong className="font-mono text-white">{currentUser.truckPlateNumber || '3-B-89210 ET'}</strong> · Capacity: 4.5 Tons · Fleet: Isuzu Medium
+              Plate: <strong className="font-mono text-white">{currentUser.truckPlateNumber || 'Not registered'}</strong>
             </div>
           </div>
         </div>
 
         <div className="text-left sm:text-right text-xs text-slate-200 space-y-1">
-          <div>Commercial License: <span className="font-mono text-emerald-300 font-bold">{currentUser.licenseNumber || 'ETH-DRV-C3-99214'}</span></div>
+          <div>Commercial License: <span className="font-mono text-emerald-300 font-bold">{currentUser.licenseNumber || 'Not on file'}</span></div>
           <div>Regulatory Expiry: <span className="font-mono text-white">{currentUser.licenseExpiryDate || '2027-08-30'}</span></div>
         </div>
       </div>
@@ -105,9 +105,13 @@ export const DriverDashboard: React.FC = () => {
             <FileText className="w-4 h-4 text-purple-600" />
           </div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1 font-mono">
-            16,500 ETB / trip
+            {waybills.length > 0
+              ? `${Number(waybills.reduce((s: number, w: any) => s + Number(w.fee ?? w.amount ?? 0), 0)).toLocaleString()} ETB`
+              : '—'}
           </div>
-          <div className="text-[11px] text-emerald-600 font-semibold mt-0.5">Escrow Locked with Wholesaler</div>
+          <div className="text-[11px] text-emerald-600 font-semibold mt-0.5">
+            {waybills.length > 0 ? 'Agreed delivery fees' : 'No active delivery fees'}
+          </div>
         </div>
       </div>
 
