@@ -247,3 +247,28 @@ class MyAssignmentsView(APIView):
                 },
             })
         return Response({"success": True, "assignments": assignments})
+
+
+from .freight_services import advance_delivery_status, DELIVERY_TRANSITIONS, DELIVERY_LABELS
+
+
+class DriverAdvanceDeliveryView(APIView):
+    """POST /api/logistics/freight-jobs/<id>/advance/ — driver advances delivery status."""
+
+    def get_permissions(self):
+        return [IsAuthenticatedRole((Role.DRIVER,))]
+
+    def post(self, request, pk):
+        job, new_status = advance_delivery_status(driver=request.user, job_id=pk)
+        notify(
+            user_ids=[job.order.buyer_id],
+            type="SYSTEM",
+            message=f"Delivery {job.order.reference}: {DELIVERY_LABELS.get(new_status, new_status)}",
+            actor=request.user,
+            target_url="/orders",
+        )
+        return Response({
+            "success": True,
+            "delivery_status": new_status,
+            "label": DELIVERY_LABELS.get(new_status, new_status),
+        })

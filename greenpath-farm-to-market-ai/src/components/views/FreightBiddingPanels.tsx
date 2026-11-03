@@ -14,6 +14,14 @@ function fmt(iso: null | string) {
 }
 
 
+const DELIVERY_LABELS: Record<string, string> = {
+  PICKUP_IN_PROGRESS: 'En route to pickup',
+  ARRIVED_AT_PICKUP: 'Arrived at pickup',
+  PICKED_UP: 'Picked up',
+  IN_TRANSIT: 'In transit to buyer',
+  DELIVERED: 'Delivered',
+};
+
 function fmtDate(iso: null | string): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -373,6 +381,8 @@ interface Assignment {
   status: string;
   assigned_at: string;
   my_fee: null | string;
+  delivery_status: string;
+  delivery_status_updated_at: null | string;
   addresses_disclosed: boolean;
   seller: { name: null | string; pickup_address: null | string };
   buyer: { name: null | string; delivery_address: null | string };
@@ -382,6 +392,19 @@ export const DriverAssignmentsPanel: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [busyAdvance, setBusyAdvance] = useState<string | null>(null);
+
+  const advanceDelivery = async (jobId: string) => {
+    setBusyAdvance(jobId); setError('');
+    try {
+      await api.freight.advanceDelivery(jobId);
+      await load();
+    } catch (err) {
+      setError(formatApiError(err, 'Could not advance the delivery.'));
+    } finally {
+      setBusyAdvance(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setError(''); setLoading(true);
@@ -428,7 +451,7 @@ export const DriverAssignmentsPanel: React.FC = () => {
               <div className="text-[11px] text-slate-500">
                 {a.quantity} · {a.cargo_weight_kg ?? '—'} kg · {a.packaging || '—'} · assigned {fmtDate(a.assigned_at)}
               </div>
-              {a.addresses_disclosed ? (
+              {a.addresses_disclosed && a.status === 'ASSIGNED' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20">
                     <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 mb-1">Pickup — seller</div>
@@ -441,9 +464,25 @@ export const DriverAssignmentsPanel: React.FC = () => {
                     <div className="text-xs text-slate-600 dark:text-slate-300">{a.buyer.delivery_address ?? '—'}</div>
                   </div>
                 </div>
-              ) : (
-                <div className="text-xs text-amber-700 dark:text-amber-400">
-                  Exact addresses will be released by the logistics manager after assignment is confirmed.
+              )}
+              {a.addresses_disclosed && a.status === 'ASSIGNED' && a.delivery_status && a.delivery_status !== 'DELIVERED' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500">Status:</span>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 text-[11px] font-bold">
+                    {(DELIVERY_LABELS as any)[a.delivery_status] ?? a.delivery_status.replace(/_/g, ' ')}
+                  </span>
+                  <button
+                    onClick={() => void advanceDelivery(a.job_id)}
+                    disabled={busyAdvance === a.job_id}
+                    className="px-3 py-1 rounded-lg bg-[#15803D] text-white text-[11px] font-semibold disabled:opacity-60"
+                  >
+                    {busyAdvance === a.job_id ? 'Updating…' : 'Advance to next status'}
+                  </button>
+                </div>
+              )}
+              {a.delivery_status === 'DELIVERED' && (
+                <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                  ✓ Delivery completed — awaiting buyer confirmation
                 </div>
               )}
             </div>

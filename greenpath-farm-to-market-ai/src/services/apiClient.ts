@@ -279,6 +279,7 @@ export const api = {
       logisticsClient.post(`/logistics/freight-jobs/${jobId}/bid/`, data),
     myBids: () => logisticsClient.get('/logistics/freight-jobs/my-bids/'),
     myAssignments: () => logisticsClient.get('/logistics/freight-jobs/my-assignments/'),
+    advanceDelivery: (jobId: string) => logisticsClient.post(`/logistics/freight-jobs/${jobId}/advance/`),
     availability: () => logisticsClient.get('/drivers/me/availability/'),
     setAvailability: (available: boolean) => logisticsClient.patch('/drivers/me/availability/', { available }),
     board: (params?: Record<string, unknown>) => apiClient.get('/payments/financial/freight-board/', { params }),

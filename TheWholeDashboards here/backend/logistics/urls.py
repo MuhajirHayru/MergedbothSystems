@@ -1,6 +1,7 @@
 from django.urls import path
 
 from payments.freight_bid_views import (
+    DriverAdvanceDeliveryView,
     FreightBidView,
     FreightJobBoardView,
     MyAssignmentsView,
@@ -113,6 +114,11 @@ urlpatterns = [
         "logistics/freight-jobs/",
         FreightJobBoardView.as_view(),
         name="freight_job_board",
+    ),
+    path(
+        "logistics/freight-jobs/<uuid:pk>/advance/",
+        DriverAdvanceDeliveryView.as_view(),
+        name="freight_advance_delivery",
     ),
     path(
         "logistics/freight-jobs/my-assignments/",

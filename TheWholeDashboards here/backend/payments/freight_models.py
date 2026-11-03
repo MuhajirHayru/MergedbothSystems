@@ -56,6 +56,18 @@ class FreightJob(models.Model):
     exact_pickup_address = models.CharField(max_length=500, blank=True, default="")
     exact_destination_address = models.CharField(max_length=500, blank=True, default="")
     addresses_disclosed_at = models.DateTimeField(null=True, blank=True)
+    delivery_status = models.CharField(
+        max_length=20, blank=True, default="",
+        choices=[
+            ("", "Not started"),
+            ("PICKUP_IN_PROGRESS", "En route to pickup"),
+            ("ARRIVED_AT_PICKUP", "Arrived at pickup"),
+            ("PICKED_UP", "Picked up"),
+            ("IN_TRANSIT", "In transit"),
+            ("DELIVERED", "Delivered"),
+        ],
+    )
+    delivery_status_updated_at = models.DateTimeField(null=True, blank=True)
     published_at = models.DateTimeField(default=timezone.now)
     assigned_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)

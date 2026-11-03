@@ -220,3 +220,44 @@ def assign_bid(*, staff, job_id, bid_id):
         target_url="/orders",
     )
     return job, bid
+
+
+DELIVERY_TRANSITIONS = {
+    "ASSIGNED": "PICKUP_IN_PROGRESS",
+    "PICKUP_IN_PROGRESS": "ARRIVED_AT_PICKUP",
+    "ARRIVED_AT_PICKUP": "PICKED_UP",
+    "PICKED_UP": "IN_TRANSIT",
+    "IN_TRANSIT": "DELIVERED",
+}
+
+DELIVERY_LABELS = {
+    "PICKUP_IN_PROGRESS": "En route to pickup",
+    "ARRIVED_AT_PICKUP": "Arrived at pickup",
+    "PICKED_UP": "Picked up — in transit",
+    "IN_TRANSIT": "In transit to buyer",
+    "DELIVERED": "Delivered",
+}
+
+
+@transaction.atomic
+def advance_delivery_status(*, driver, job_id):
+    """Driver advances their assigned delivery to the next status."""
+    job = FreightJob.objects.select_for_update().select_related("order").filter(
+        pk=job_id, assigned_driver=driver
+    ).first()
+    if job is None:
+        raise NotFound("Assigned job not found.")
+    if job.status != FreightJob.Status.ASSIGNED:
+        raise ValidationError({"detail": "Only assigned jobs can be progressed."})
+    current = job.delivery_status or "ASSIGNED"
+    allowed_from = {v: k for k, v in DELIVERY_TRANSITIONS.items()}
+    if current not in allowed_from:
+        raise ValidationError({"detail": f"Delivery already at final status: {current}."})
+    next_status = allowed_from[current]
+    job.delivery_status = next_status
+    job.delivery_status_updated_at = timezone.now()
+    job.save(update_fields=["delivery_status", "delivery_status_updated_at"])
+    if next_status == "DELIVERED":
+        job.status = FreightJob.Status.COMPLETED
+        job.save(update_fields=["status"])
+    return job, next_status
