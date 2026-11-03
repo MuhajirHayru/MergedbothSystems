@@ -78,7 +78,7 @@ class IsDriver(BasePermission):
             request.user
             and request.user.is_authenticated
             and request.user.is_active
-            and request.user.role == LogisticsUser.Role.DRIVER
+            and request.user.role == "DRIVER"  # marketplace User.Role.DRIVER (uppercase)
         )
 
 

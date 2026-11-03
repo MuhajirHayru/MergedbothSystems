@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { RegionalAnalyticsPanel } from './RegionalAnalyticsPanel';
 import { RegionalFinancialMetric, ZoneFinancialMetric } from '../../types';
 import {
   BarChart,
@@ -38,6 +39,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
   const { regionalMetrics, setNotification } = useApp();
 
   const [timeframe, setTimeframe] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Yearly'>('Monthly');
+  const [scopeTab, setScopeTab] = useState<'financial' | 'analytics'>('financial');
   const [selectedRegion, setSelectedRegion] = useState<RegionalFinancialMetric | null>(null);
   const [selectedZone, setSelectedZone] = useState<ZoneFinancialMetric | null>(null);
 
@@ -116,6 +118,19 @@ export const RegionalFinancialReportsView: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="flex items-center gap-2 text-xs font-semibold border-b border-slate-200 dark:border-slate-800 pb-3">
+        {([['financial', 'Financial Reports'], ['analytics', 'Users, Registrations & Hierarchy']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setScopeTab(id)}
+            className={`py-1.5 px-3 rounded-lg ${scopeTab === id ? 'bg-[#15803D] text-white' : 'border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {scopeTab === 'analytics' && <RegionalAnalyticsPanel />}
+      {scopeTab === 'financial' && (<>
       {/* Scope Navigation / Breadcrumb */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
@@ -525,6 +540,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
           </table>
         </div>
       </div>
+      </>)}
     </div>
   );
 };

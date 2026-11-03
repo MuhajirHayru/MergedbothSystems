@@ -777,3 +777,42 @@ def test_soft_deleted_listing_keeps_payment_history(api, farmer, farmer_product,
     response = api.get(f"/api/v1/payments/{payment.id}/")
     assert response.status_code == 200
     assert PaymentRecord.objects.filter(pk=payment.id).exists()
+
+
+def test_order_idempotency_replay_returns_existing_order_without_side_effects(
+    api, wholesaler, farmer, farmer_product
+):
+    api.force_authenticate(user=wholesaler)
+    payload = {"product": str(farmer_product.pk), "quantity": "2"}
+
+    first = api.post(
+        "/api/v1/orders/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="replay-regression-001",
+    )
+    assert first.status_code == 201, first.data
+    order_id = first.data["order"]["id"]
+
+    farmer_product.refresh_from_db()
+    quantity_after_first = farmer_product.quantity
+
+    replay = api.post(
+        "/api/v1/orders/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="replay-regression-001",
+    )
+    assert replay.status_code == 200, replay.data
+    assert replay.data["order"]["id"] == order_id
+    assert Order.objects.count() == 1
+    farmer_product.refresh_from_db()
+    assert farmer_product.quantity == quantity_after_first
+
+    other_buyer_key = api.post(
+        "/api/v1/orders/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="replay-regression-002",
+    )
+    assert other_buyer_key.status_code == 201, other_buyer_key.data

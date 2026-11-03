@@ -1,3 +1,17 @@
+type BackendRole =
+  | "FARMER"
+  | "WHOLESALER"
+  | "RETAILER"
+  | "DRIVER"
+  | "USER_ADMIN"
+  | "FINANCIAL_MANAGER"
+  | "SUPER_ADMIN"
+  | "TOP_USER_ADMIN"
+  | "REGIONAL_ADMIN"
+  | "ZONAL_ADMIN"
+  | "WEREDA_ADMIN"
+  | "LOGISTICS_MANAGER"
+  | "CUSTOMER_SUPPORT";
 "use client";
 
 import {
@@ -370,22 +384,50 @@ export const superAdminNav: NavItem[] = [
   { label: "Settings", href: "/super-admin/settings", icon: "Settings", group: "Account" },
 ];
 
+
+export const logisticsNav: NavItem[] = [
+  { label: "Logistics & Tracking", href: "/logistics-dashboard", icon: "Truck", group: "Overview" },
+  { label: "Freight Bidding", href: "/freight-bids", icon: "Gavel", group: "Operations" },
+  { label: "Customer Support", href: "/support", icon: "LifeBuoy", group: "Coordination" },
+  { label: "Messages", href: "/messaging", icon: "MessageSquare", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+];
+
+export const supportNav: NavItem[] = [
+  { label: "Support Inbox", href: "/support", icon: "LifeBuoy", group: "Overview" },
+  { label: "Messages", href: "/messaging", icon: "MessageSquare", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+];
+
 export function getNavItems(role: UserRole): NavItem[] {
   switch (role) {
+    case "farmer":
     case "FARMER":
       return farmerNav;
+    case "wholesaler":
     case "WHOLESALER":
       return wholesalerNav;
+    case "retailer":
     case "RETAILER":
       return retailerNav;
+    case "driver":
     case "DRIVER":
       return driverNav;
+    case "user_admin":
     case "USER_ADMIN":
       return adminNav;
+    case "financial_manager":
     case "FINANCIAL_MANAGER":
       return finManagerNav;
+    case "super_admin":
     case "SUPER_ADMIN":
       return superAdminNav;
+    case "logistics_manager":
+    case "LOGISTICS_MANAGER":
+      return logisticsNav;
+    case "customer_support":
+    case "CUSTOMER_SUPPORT":
+      return supportNav;
     default:
       return farmerNav;
   }

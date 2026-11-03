@@ -34,6 +34,15 @@ export interface ApiOrder {
   product_unit: string;
   quantity: string;
   total_amount: string;
+  discount_amount?: string;
+  discount_snapshot?: null | {
+    code?: string;
+    funding_source?: "PLATFORM" | "SELLER";
+    original_amount?: string;
+    discount_amount?: string;
+    final_amount?: string;
+    [key: string]: unknown;
+  };
   total: string;
   status: string;
   status_display: string;

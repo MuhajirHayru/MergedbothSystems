@@ -92,7 +92,7 @@ def _matching_commission_rule(configuration, *, seller_role, product_type, regio
 
 
 @transaction.atomic
-def post_completed_order(order, *, actor):
+def post_completed_order(order, *, actor, gross_override=None):
     from .models import Order, OrderPaymentStatus, OrderStatus
 
     locked = Order.objects.select_for_update().select_related(
@@ -117,6 +117,7 @@ def post_completed_order(order, *, actor):
         region_id = location_id = location.pk
     else:
         location_id = region_id
+    effective_gross = locked.total_amount if gross_override is None else Decimal(str(gross_override))
     effective_at = locked.quality_confirmed_at or locked.updated_at
     configuration = _active_configuration(FinancialConfiguration.Kind.COMMISSION, effective_at)
     rule = _matching_commission_rule(
@@ -125,9 +126,9 @@ def post_completed_order(order, *, actor):
     )
     if not rule:
         return FinancialOrderSnapshot.objects.create(
-            order=locked, gross_order_value=locked.total_amount,
+            order=locked, gross_order_value=effective_gross,
             seller_role=seller_role, seller_user=seller,
-            seller_proceeds=locked.total_amount,
+            seller_proceeds=effective_gross,
             currency="ETB", status=FinancialOrderSnapshot.Status.TAX_UNRESOLVED,
         )
     try:
@@ -137,8 +138,8 @@ def post_completed_order(order, *, actor):
         raise ValueError("Commission rule rate and fixed_fee must be decimal strings.") from exc
     if rate < 0 or rate > 1 or fixed < 0:
         raise ValueError("Commission rule rate must be between 0 and 1 and fixed_fee nonnegative.")
-    commission = (locked.total_amount * rate + fixed).quantize(Decimal("0.01"))
-    if commission > locked.total_amount:
+    commission = (effective_gross * rate + fixed).quantize(Decimal("0.01"))
+    if commission > effective_gross:
         raise ValueError("Commission cannot exceed gross order value.")
     tax_configuration = _active_configuration(FinancialConfiguration.Kind.TAX, effective_at)
     tax_amount = None
@@ -158,11 +159,11 @@ def post_completed_order(order, *, actor):
         snapshot_status = FinancialOrderSnapshot.Status.SETTLED
         tax_for_proceeds = tax_amount
     snapshot = FinancialOrderSnapshot.objects.create(
-        order=locked, configuration=configuration, gross_order_value=locked.total_amount,
+        order=locked, configuration=configuration, gross_order_value=effective_gross,
         seller_role=seller_role, seller_user=seller, commission_rate=rate, commission_fixed_fee=fixed,
         commission_amount=commission, service_fee_amount=fixed,
         tax_configuration=tax_configuration, tax_amount=tax_amount,
-        seller_proceeds=locked.total_amount - commission - tax_for_proceeds,
+        seller_proceeds=effective_gross - commission - tax_for_proceeds,
         currency="ETB", status=snapshot_status,
     )
     if commission > 0:

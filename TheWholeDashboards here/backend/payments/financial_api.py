@@ -1,7 +1,8 @@
 from datetime import date
+from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -11,7 +12,9 @@ from rest_framework.views import APIView
 
 from users.models import AuditLog, Role
 from users.permissions import IsAuthenticatedRole
+from .discount_models import DiscountCampaign, DiscountRedemption
 from .financial_models import (
+    EmployeeProfile,
     FinancialAccount,
     FinancialConfiguration,
     FinancialJournalEntry,
@@ -53,7 +56,11 @@ class FinancialJournalEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = FinancialJournalEntry
         fields = "__all__"
-        read_only_fields = fields
+        read_only_fields = ("id", "reference", "category", "amount", "currency",
+                            "debit_account", "credit_account", "order_reference",
+                            "related_user", "location", "configuration", "status",
+                            "source", "source_reference", "idempotency_key", "actor",
+                            "posted_by", "created_at", "reverses")
 
 
 class FinancialExpenseSerializer(serializers.ModelSerializer):
@@ -405,6 +412,15 @@ class FinancialLedgerListView(FinancialBaseView):
             raise ValidationError("start and end must be ISO dates.") from exc
         if request.query_params.get("category"):
             qs = qs.filter(category=request.query_params["category"])
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(reference__icontains=search)
+                | Q(source_reference__icontains=search)
+                | Q(order_reference__icontains=search)
+                | Q(actor__full_name__icontains=search)
+                | Q(category__icontains=search)
+            )
         return Response(FinancialJournalEntrySerializer(qs, many=True).data)
 
 
@@ -412,3 +428,362 @@ class FinancialSummaryView(FinancialBaseView):
     def get(self, request):
         count = FinancialJournalEntry.objects.filter(status=FinancialJournalEntry.Status.POSTED).count()
         return Response({"currency": "ETB", "ledger_entries": count, "revenue": "UNTRACKED", "profit": "UNTRACKED", "note": "Revenue and profit are not reported until source transactions are completely integrated into the ledger."})
+
+
+class DiscountCampaignSerializer(serializers.ModelSerializer):
+    effective_status = serializers.CharField(read_only=True)
+    total_redemptions = serializers.SerializerMethodField()
+    total_discount_amount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DiscountCampaign
+        fields = [
+            "id", "name", "code", "description", "discount_type", "discount_value",
+            "max_discount_amount", "min_order_value", "first_order_only",
+            "funding_source", "product", "product_category", "seller",
+            "usage_limit", "per_user_limit", "starts_at", "ends_at",
+            "is_active", "effective_status", "total_redemptions",
+            "total_discount_amount", "created_by", "created_at", "updated_at",
+        ]
+        read_only_fields = ("id", "created_by", "created_at", "updated_at")
+
+    def get_total_redemptions(self, obj):
+        return obj.redemptions.count()
+
+    def get_total_discount_amount(self, obj):
+        total = obj.redemptions.aggregate(s=Sum("discount_amount"))["s"]
+        return str(total) if total is not None else "0.00"
+
+    def validate(self, attrs):
+        starts_at = attrs.get("starts_at", getattr(self.instance, "starts_at", None))
+        ends_at = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
+        if starts_at and ends_at and ends_at <= starts_at:
+            raise serializers.ValidationError({"ends_at": "Must be later than starts_at."})
+        discount_type = attrs.get("discount_type", getattr(self.instance, "discount_type", None))
+        discount_value = attrs.get("discount_value", getattr(self.instance, "discount_value", None))
+        max_cap = attrs.get("max_discount_amount", getattr(self.instance, "max_discount_amount", None))
+        if discount_type == DiscountCampaign.DiscountType.PERCENTAGE:
+            if discount_value is None or not (Decimal("0") <= discount_value <= Decimal("100")):
+                raise serializers.ValidationError(
+                    {"discount_value": "Percentage discounts use percent (0-100)."}
+                )
+            if max_cap is None:
+                raise serializers.ValidationError(
+                    {"max_discount_amount": "Percentage discounts require a maximum cap."}
+                )
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
+
+
+class DiscountCampaignListView(FinancialBaseView):
+    def get(self, request):
+        campaigns = DiscountCampaign.objects.select_related("product", "seller").order_by("-created_at")
+        status_param = request.query_params.get("status")
+        if status_param:
+            campaigns = [c for c in campaigns if c.effective_status == status_param.upper()]
+        return Response(DiscountCampaignSerializer(campaigns, many=True).data)
+
+    def post(self, request):
+        if request.user.role != Role.SUPER_ADMIN:
+            raise PermissionDenied("Only Super Admin can create discount campaigns.")
+        serializer = DiscountCampaignSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        campaign = serializer.save()
+        AuditLog.objects.create(
+            actor=request.user, action="DISCOUNT_CAMPAIGN_CREATED",
+            target=str(campaign.pk), detail=f"{campaign.code} {campaign.discount_type} {campaign.discount_value} {campaign.funding_source}",
+        )
+        return Response(DiscountCampaignSerializer(campaign).data, status=201)
+
+
+class DiscountCampaignActionView(FinancialBaseView):
+    @transaction.atomic
+    def post(self, request, pk):
+        if request.user.role != Role.SUPER_ADMIN:
+            raise PermissionDenied("Only Super Admin can activate or deactivate campaigns.")
+        campaign = DiscountCampaign.objects.select_for_update().get(pk=pk)
+        action = request.data.get("action")
+        if action == "activate":
+            campaign.is_active = True
+        elif action == "deactivate":
+            campaign.is_active = False
+        else:
+            raise ValidationError({"action": "Use 'activate' or 'deactivate'."})
+        campaign.save(update_fields=["is_active", "updated_at"])
+        AuditLog.objects.create(
+            actor=request.user, action=f"DISCOUNT_CAMPAIGN_{action.upper()}",
+            target=str(campaign.pk), detail=(request.data.get("reason") or "").strip(),
+        )
+        return Response(DiscountCampaignSerializer(campaign).data)
+
+
+class DiscountCampaignUpdateView(FinancialBaseView):
+    def put(self, request, pk):
+        return self._update(request, pk)
+
+    def patch(self, request, pk):
+        return self._update(request, pk)
+
+    @transaction.atomic
+    def _update(self, request, pk):
+        if request.user.role != Role.SUPER_ADMIN:
+            raise PermissionDenied("Only Super Admin can edit discount campaigns.")
+        campaign = DiscountCampaign.objects.select_for_update().get(pk=pk)
+        serializer = DiscountCampaignSerializer(campaign, data=request.data, partial=True, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        # Once a coupon has been used, the commercial terms are locked: the
+        # redemption snapshots must stay truthful about what buyers were promised.
+        protected = ("code", "discount_type", "funding_source")
+        if campaign.redemptions.exists():
+            changing = [
+                field for field in protected
+                if field in serializer.validated_data
+                and serializer.validated_data[field] != getattr(campaign, field)
+            ]
+            if changing:
+                raise ValidationError(
+                    {field: "This field is locked because the coupon has already been redeemed." for field in changing}
+                )
+        updated = serializer.save()
+        AuditLog.objects.create(
+            actor=request.user, action="DISCOUNT_CAMPAIGN_UPDATED",
+            target=str(updated.pk),
+            detail=f"{updated.code} active={updated.is_active} value={updated.discount_value}",
+        )
+        return Response(DiscountCampaignSerializer(updated).data)
+
+
+class DiscountRedemptionListView(FinancialBaseView):
+    def get(self, request):
+        redemptions = DiscountRedemption.objects.select_related("campaign", "order", "user").order_by("-created_at")
+        campaign_id = request.query_params.get("campaign")
+        if campaign_id:
+            redemptions = redemptions.filter(campaign_id=campaign_id)
+        summary = redemptions.aggregate(
+            count=Count("id"), total_discount=Sum("discount_amount")
+        )
+        return Response({
+            "summary": {
+                "count": summary["count"],
+                "total_discount_amount": str(summary["total_discount"] or Decimal("0")),
+            },
+            "redemptions": [
+                {
+                    "id": str(r.pk),
+                    "campaign": r.campaign.name,
+                    "code": r.code_snapshot,
+                    "order_reference": r.order.reference,
+                    "buyer": r.user.full_name,
+                    "original_amount": str(r.original_amount),
+                    "discount_amount": str(r.discount_amount),
+                    "final_amount": str(r.final_amount),
+                    "funded_by": r.funded_by,
+                    "applied_at": r.created_at,
+                }
+                for r in redemptions[:200]
+            ],
+        })
+
+
+class FinancialTransactionDetailView(FinancialBaseView):
+    """GET /payments/financial/ledger/<id>/ — one entry with its related set."""
+
+    def get(self, request, pk):
+        entry = FinancialJournalEntry.objects.select_related(
+            "debit_account", "credit_account", "actor", "configuration", "related_user"
+        ).filter(pk=pk).first()
+        if entry is None:
+            raise ValidationError("Journal entry not found.")
+        related = FinancialJournalEntry.objects.filter(
+            source_reference=entry.source_reference
+        ).exclude(pk=entry.pk).select_related("debit_account", "credit_account")
+        return Response({
+            "entry": FinancialJournalEntrySerializer(entry).data,
+            "category": entry.category,
+            "order_reference": entry.order_reference,
+            "related_entries": FinancialJournalEntrySerializer(related, many=True).data,
+        })
+
+
+class ProfitAndLossView(FinancialBaseView):
+    """GET /payments/financial/pnl/?start&end — Part 24.3, sourced from the ledger.
+
+    Revenue: MARKETPLACE_COMMISSION + DELIVERY_SERVICE_REVENUE postings.
+    Expenses: PROMOTION_EXPENSE, operating expenses and payroll postings.
+    When nothing has been posted in the window the figures are reported as
+    unavailable rather than zero.
+    """
+
+    def get(self, request):
+        from datetime import date as _date
+
+        from django.db.models import Sum
+
+        qs = FinancialJournalEntry.objects.filter(status=FinancialJournalEntry.Status.POSTED)
+        try:
+            start = request.query_params.get("start")
+            end = request.query_params.get("end")
+            if start:
+                _date.fromisoformat(start)
+                qs = qs.filter(created_at__date__gte=start)
+            if end:
+                _date.fromisoformat(end)
+                qs = qs.filter(created_at__date__lte=end)
+        except ValueError as exc:
+            raise ValidationError("start and end must be ISO dates.") from exc
+
+        revenue_categories = ("MARKETPLACE_COMMISSION", "DELIVERY_SERVICE_REVENUE")
+        promotion = qs.filter(category="PROMOTION_EXPENSE").aggregate(s=Sum("amount"))["s"]
+        payroll = qs.filter(category__startswith="PAYROLL").aggregate(s=Sum("amount"))["s"]
+        operating = qs.filter(category="OPERATING_EXPENSE").aggregate(s=Sum("amount"))["s"]
+        _q = lambda v: Decimal(v).quantize(Decimal("0.01")) if v is not None else None
+        revenue_rows = []
+        revenue_total = Decimal("0")
+        for category in revenue_categories:
+            amount = _q(qs.filter(category=category).aggregate(s=Sum("amount"))["s"])
+            revenue_rows.append({"category": category, "amount": str(amount)})
+            revenue_total += amount or Decimal("0")
+        revenue_total = _q(revenue_total)
+        promotion_q, payroll_q, operating_q = _q(promotion), _q(payroll), _q(operating)
+        expense_total = _q(
+            (promotion_q or Decimal("0")) + (payroll_q or Decimal("0")) + (operating_q or Decimal("0"))
+        )
+
+        has_revenue_data = qs.filter(category__in=revenue_categories).exists()
+        has_expense_data = any(v is not None for v in (promotion, payroll, operating))
+        gross_profit = revenue_total - expense_total if (has_revenue_data or has_expense_data) else None
+        return Response({
+            "success": True,
+            "window": {"start": start or None, "end": end or None},
+            "revenue": {
+                "available": has_revenue_data,
+                "lines": revenue_rows,
+                "total": str(revenue_total) if has_revenue_data else None,
+            },
+            "expenses": {
+                "available": has_expense_data,
+                "promotion": str(promotion_q) if promotion_q is not None else None,
+                "payroll": str(payroll_q) if payroll_q is not None else None,
+                "operating": str(operating_q) if operating_q is not None else None,
+                "total": str(expense_total) if has_expense_data else None,
+            },
+            "gross_profit": str(gross_profit) if gross_profit is not None else None,
+            "net_profit": str(gross_profit) if gross_profit is not None else None,
+            "note": "Escrow, wallet balances, seller payables, driver compensation payable and tax liabilities are never counted as profit.",
+        })
+
+
+class EmployeeRegistrySerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+    user_role = serializers.CharField(source="user.role", read_only=True)
+    user_email = serializers.CharField(source="user.email", read_only=True)
+
+    class Meta:
+        model = EmployeeProfile
+        fields = ["id", "user", "user_name", "user_role", "user_email", "employee_code",
+                  "department", "job_title", "employment_status", "contract_type",
+                  "hired_at", "monthly_base_salary", "created_at"]
+        read_only_fields = ("id", "employee_code", "created_at")
+
+    STAFF_ROLES = ("USER_ADMIN", "FINANCIAL_MANAGER", "SUPER_ADMIN", "CUSTOMER_SUPPORT",
+                   "TOP_USER_ADMIN", "REGIONAL_ADMIN", "ZONAL_ADMIN", "WEREDA_ADMIN")
+
+    def validate_user(self, value):
+        if value.role not in self.STAFF_ROLES:
+            raise serializers.ValidationError(
+                "Only staff accounts can be registered as employees."
+            )
+        if EmployeeProfile.objects.filter(user=value).exclude(pk=self.instance.pk if self.instance else None).exists():
+            raise serializers.ValidationError("This account already has an employee profile.")
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
+        return super().create(validated_data)
+
+
+class EmployeeRegistryView(FinancialBaseView):
+    """GET/POST/PATCH /payments/financial/employees/ — Part 25 employee registry."""
+
+    def get(self, request):
+        employees = EmployeeProfile.objects.select_related("user").order_by("employee_code")
+        summary = {
+            "total": employees.count(),
+            "active": employees.filter(employment_status="ACTIVE").count(),
+            "inactive": employees.filter(employment_status="INACTIVE").count(),
+            "monthly_payroll_expense": str(employees.filter(employment_status="ACTIVE").aggregate(
+                s=Sum("monthly_base_salary"))["s"] or 0),
+            "by_department": list(employees.values("department").annotate(total=Count("id")).order_by("-total")),
+        }
+        return Response({"summary": summary, "employees": EmployeeRegistrySerializer(employees, many=True).data})
+
+    def post(self, request):
+        if request.user.role != Role.SUPER_ADMIN:
+            raise PermissionDenied("Only Super Admin can register employees.")
+        serializer = EmployeeRegistrySerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        employee = serializer.save()
+        AuditLog.objects.create(actor=request.user, action="EMPLOYEE_REGISTERED",
+                                target=str(employee.pk), detail=f"{employee.employee_code} {employee.user.full_name}")
+        return Response(EmployeeRegistrySerializer(employee).data, status=201)
+
+    def patch(self, request):
+        employee = EmployeeProfile.objects.filter(pk=request.data.get("id")).first()
+        if employee is None:
+            raise ValidationError({"id": "Employee not found."})
+        if request.user.role != Role.SUPER_ADMIN:
+            raise PermissionDenied("Only Super Admin can edit employees.")
+        serializer = EmployeeRegistrySerializer(employee, data=request.data, partial=True, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        employee = serializer.save()
+        AuditLog.objects.create(actor=request.user, action="EMPLOYEE_UPDATED",
+                                target=str(employee.pk), detail=f"{employee.employee_code} status={employee.employment_status}")
+        return Response(EmployeeRegistrySerializer(employee).data)
+
+
+class PayrollSummaryView(FinancialBaseView):
+    """GET /payments/financial/payroll/summary/ — Part 25 dashboard totals."""
+
+    def get(self, request):
+        qs = FinancialPayrollRecord.objects.select_related("employee")
+        month_start = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return Response({
+            "success": True,
+            "employees": {"total": EmployeeProfile.objects.count(),
+                          "active": EmployeeProfile.objects.filter(employment_status="ACTIVE").count(),
+                          "inactive": EmployeeProfile.objects.filter(employment_status="INACTIVE").count(),
+                          "terminated": EmployeeProfile.objects.filter(employment_status="TERMINATED").count()},
+            "pending_approvals": qs.filter(status="PENDING").count(),
+            "paid": {"count": qs.filter(status="PAID").count(),
+                     "amount": str(qs.filter(status="PAID").aggregate(s=Sum("deductions") + Sum("base_amount") + Sum("allowances") - Sum("deductions"))["s"] or 0)},
+            "unpaid": {"count": qs.filter(status__in=("APPROVED", "PENDING", "DRAFT")).count(),
+                       "amount": str(qs.filter(status="APPROVED").aggregate(s=Sum("base_amount") + Sum("allowances") - Sum("deductions"))["s"] or 0)},
+            "tax_and_liabilities": str(qs.exclude(status="REJECTED").aggregate(s=Sum("tax_amount"))["s"] or 0),
+            "current_month_records": qs.filter(created_at__gte=month_start).count(),
+        })
+
+
+class MyPayslipsView(APIView):
+    """GET /api/v1/auth/my-payslips/ — an employee sees only their own records."""
+
+    def get_permissions(self):
+        return [IsAuthenticated()]
+
+    def get(self, request):
+        records = FinancialPayrollRecord.objects.filter(employee=request.user).order_by("-period_start")
+        return Response({
+            "success": True,
+            "payslips": [
+                {"id": str(r.pk), "period": f"{r.period_start} → {r.period_end}",
+                 "base_amount": str(r.base_amount), "allowances": str(r.allowances),
+                 "deductions": str(r.deductions), "tax_amount": str(r.tax_amount),
+                 "net": str(r.base_amount + r.allowances - r.deductions - r.tax_amount),
+                 "status": r.status, "paid_at": r.paid_at.isoformat() if r.paid_at else None}
+                for r in records
+            ],
+        })

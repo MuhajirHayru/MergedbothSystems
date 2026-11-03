@@ -23,7 +23,7 @@ const backendOnly = process.argv.includes("--backend-only");
 const driverOnly = process.argv.includes("--driver-only");
 const all = process.argv.includes("--all");
 
-const driverDir = path.join(root, "GreenPathDriverApp", "Greenpathdriverapp");
+const driverDir = path.join(root, "GreenPathDriverApp");
 const driverBackendDir = path.join(driverDir, "backend");
 const driverFrontendDir = path.join(driverDir, "frontend");
 

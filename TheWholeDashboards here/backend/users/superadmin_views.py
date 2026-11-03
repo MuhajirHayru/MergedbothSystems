@@ -893,6 +893,8 @@ class PlatformSettingsView(APIView):
         "require_approval",
         "announcement",
         "maintenance_mode",
+        "orders_disabled",
+        "discount_campaigns_disabled",
         "max_failed_login_attempts",
         "lockout_duration_minutes",
         "text_messaging_enabled",

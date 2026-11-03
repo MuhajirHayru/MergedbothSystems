@@ -74,3 +74,13 @@ driver.save()
 - ✅ At least one driver account fully functional
 
 **Last Updated:** 2026-10-24 19:00 UTC
+
+
+## Freight bidding & logistics tracker (Part 26)
+
+| Role | Email | Password | Purpose |
+|---|---|---|---|
+| **Logistics Manager** (the tracker) | `logistics.manager@greenpath.et` | `Green@2024` | "Freight Bidding" sidebar panel: compare driver bids, Accept to assign, cancel jobs |
+| **Driver (job board)** | `testdriver@example.com` | `Green@2024` | Driver console → "Delivery Job Board": browse open jobs, place/update bids, bid history |
+
+Log in on **http://localhost:3000** — no separate driver port. A demo freight job for order #ORD686681 is OPEN for bidding.

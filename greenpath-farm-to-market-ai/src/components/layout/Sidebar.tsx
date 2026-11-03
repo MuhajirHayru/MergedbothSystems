@@ -24,6 +24,13 @@ import {
   LogOut,
   ExternalLink,
   ChevronRight,
+  BadgePercent,
+  LifeBuoy,
+  ShieldAlert,
+  Image as ImageIcon,
+  Heart,
+  Eye,
+  Gavel,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -47,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'order_history', label: 'Order History', icon: FileText },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'wallet', label: 'My Earnings & Wallet', icon: DollarSign },
+          { id: 'support_management', label: 'Get Help & Support', icon: LifeBuoy },
+          { id: 'wishlist', label: 'My Wishlist', icon: Heart },
           { id: 'reports_regional', label: 'Regional Prices', icon: TrendingUp },
           { id: 'settings', label: 'Profile & Settings', icon: Settings },
         ];
@@ -57,7 +66,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'recommendations', label: 'AI Recommendations', icon: Sparkles },
           { id: 'orders', label: 'My Orders', icon: Package, badge: '2' },
           { id: 'wholesaler_inventory', label: 'My Inventory Stock', icon: Layers },
+          { id: 'wishlist', label: 'My Wishlist', icon: Heart },
           { id: 'wallet', label: 'Wallet & Escrow', icon: DollarSign },
+          { id: 'support_management', label: 'Get Help & Support', icon: LifeBuoy },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'reports_regional', label: 'Regional Market Feed', icon: TrendingUp },
           { id: 'settings', label: 'Profile & Settings', icon: Settings },
@@ -67,6 +78,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'retailer_dashboard', label: 'Overview', icon: LayoutDashboard },
           { id: 'marketplace', label: 'Discover Products', icon: ShoppingBag },
           { id: 'orders', label: 'My Restock Orders', icon: Package, badge: '1' },
+          { id: 'support_management', label: 'Get Help & Support', icon: LifeBuoy },
+          { id: 'wishlist', label: 'My Wishlist', icon: Heart },
           { id: 'wallet', label: 'Wallet & Chapa Pay', icon: DollarSign },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Profile & Settings', icon: Settings },
@@ -74,20 +87,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       case 'driver':
         return [
           { id: 'driver_dashboard', label: 'Driver Hub & Status', icon: LayoutDashboard },
+          { id: 'driver_freight', label: 'Delivery Job Board', icon: Gavel },
+          { id: 'driver_assignments', label: 'My Deliveries', icon: MapPin },
           { id: 'driver_shipments', label: 'Authorized Shipments', icon: Truck },
           { id: 'driver_waybills', label: 'Waybill Manifests', icon: MapPin },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Driver Documents & Profile', icon: Settings },
         ];
+      case 'logistics_manager':
+        return [
+          { id: '_hdr_overview', label: 'Overview', header: true },
+          { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
+          { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
+          { id: '_hdr_operations', label: 'Coordination', header: true },
+          { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
+          { id: '_hdr_workspace', label: 'Workspace', header: true },
+          { id: 'messaging', label: 'Messages', icon: MessageSquare },
+          { id: 'settings', label: 'Settings', icon: Settings },
+        ];
+      case 'customer_support':
+        return [
+          { id: 'support_management', label: 'Support Inbox', icon: LifeBuoy },
+          { id: 'messaging', label: 'Messages', icon: MessageSquare },
+          { id: 'settings', label: 'Settings', icon: Settings },
+        ];
       case 'financial_manager':
         return [
+          { id: '_hdr_overview', label: 'Overview', header: true },
           { id: 'financial_dashboard', label: 'Financial Overview', icon: LayoutDashboard },
+          { id: 'reports_regional', label: 'Regional Financial Reports', icon: BarChart3, highlight: true },
+          { id: '_hdr_operations', label: 'Daily Operations', header: true },
           { id: 'financial_controls', label: 'Financial Controls', icon: Sliders },
           { id: 'payment_verification', label: 'Payment Verification', icon: DollarSign, badge: '3' },
           { id: 'wallet_management', label: 'Wallet Vault & Escrow', icon: Shield },
           { id: 'funding_requests', label: 'Funding Requests', icon: Layers },
-          { id: 'reports_regional', label: 'Regional Financial Reports', icon: BarChart3, highlight: true },
           { id: 'bank_accounts', label: 'Bank Accounts Review', icon: FileCheck2 },
+          { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
+          { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
+          { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
+          { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
+          { id: '_hdr_workspace', label: 'Compliance & Workspace', header: true },
           { id: 'audit_logs', label: 'Audit & Compliance Logs', icon: FileText },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Financial Settings', icon: Settings },
@@ -97,6 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'user_admin_dashboard', label: 'Overview', icon: LayoutDashboard },
           { id: 'pending_registrations', label: 'Pending Registrations', icon: FileCheck2, badge: '3' },
           { id: 'all_users', label: 'All Registered Users', icon: Users },
+          { id: 'admin_products', label: 'Product Listings', icon: Package },
           { id: 'staff_management', label: 'Staff Management', icon: UserCog },
           { id: 'audit_logs', label: 'Verification Audit', icon: Shield },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
@@ -115,14 +155,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         ];
       case 'super_admin':
         return [
+          { id: '_hdr_overview', label: 'Overview', header: true },
           { id: 'super_admin_dashboard', label: 'Platform Overview', icon: LayoutDashboard },
           { id: 'all_users', label: 'Platform Users & Staff', icon: Users },
           { id: 'reports_regional', label: 'Regional Reports', icon: BarChart3 },
+          { id: '_hdr_operations', label: 'Marketplace Operations', header: true },
           { id: 'marketplace_mgmt', label: 'Product Categories', icon: Layers },
+          { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
+          { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
           { id: 'website_content', label: 'Website Content & CMS', icon: Sliders },
+          { id: 'banner_management', label: 'Banners & Announcements', icon: ImageIcon },
+          { id: '_hdr_governance', label: 'Governance & Security', header: true },
           { id: 'system_security', label: 'Security & Lockout Rules', icon: Shield },
           { id: 'staff_management', label: 'Staff Management', icon: UserCog },
+          { id: 'account_control', label: 'Account & System Controls', icon: ShieldAlert },
+          { id: 'messaging_oversight', label: 'Messaging Oversight', icon: Eye },
           { id: 'audit_logs', label: 'Master Audit Logs', icon: FileText },
+          { id: '_hdr_workspace', label: 'Workspace', header: true },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'System Settings', icon: Settings },
         ];
@@ -191,7 +240,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               Workspace Menu
             </div>
             {navItems.map((item) => {
-              const Icon = item.icon;
+              if ((item as any).header) {
+                return (
+                  <div
+                    key={item.id}
+                    className="pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400/70 dark:text-slate-500 select-none"
+                  >
+                    {item.label}
+                  </div>
+                );
+              }
+              const Icon = item.icon!;
               const isActive = activeView === item.id;
               const badge =
                 item.id === 'messaging'

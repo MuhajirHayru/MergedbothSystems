@@ -331,9 +331,12 @@ def test_financial_operations_summary_period_and_activity_reconcile(
         status=OrderStatus.COMPLETED,
     )
     api.force_authenticate(user=financial_manager)
+    # The summary filters on local dates (Africa/Addis_Ababa); the window must
+    # be expressed the same way or late-UTC submissions fall outside it.
+    local_day = timezone.localdate()
     response = api.get(
         "/api/v1/dashboard/financial-operations/",
-        {"date_from": submitted.date().isoformat(), "date_to": submitted.date().isoformat()},
+        {"date_from": local_day.isoformat(), "date_to": local_day.isoformat()},
     )
 
     assert response.status_code == 200, response.data

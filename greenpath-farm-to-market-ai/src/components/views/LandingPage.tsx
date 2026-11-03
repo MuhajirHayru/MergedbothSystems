@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { apiClient } from '../../services/apiClient';
 import {
   TrendingUp,
   ShieldCheck,
@@ -26,6 +27,14 @@ export const LandingPage: React.FC = () => {
   const { setCurrentRole, setActiveView, setAiModalOpen, language, platformConfig } = useApp();
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
+  const [landingBanners, setLandingBanners] = useState<{ id: number; title: string; description: string; image_url: string | null; destination_url: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get('/auth/banners/')
+      .then((res) => { if (!cancelled) setLandingBanners(res.data?.banners ?? []); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
   const content = platformConfig?.websiteContent || {
     platformTitle: 'GreenPath Farm to Market AI',
     amharicTitle: 'ግሪንፓዝ የግብርና ገበያ AI',
@@ -39,38 +48,8 @@ export const LandingPage: React.FC = () => {
     faqItems: [],
   };
 
-  const livePrices = [
-    { crop: 'Highland Tomato (ቲማቲም)', hub: 'Piazza / Merkato', price: '72 ETB/kg', trend: '+4.2%' },
-    { crop: 'Cured Red Shallot (ቀይ ሽንኩርት)', hub: 'Addis Wholesale', price: '84 ETB/kg', trend: '+2.1%' },
-    { crop: 'Export Hass Avocado (አቮካዶ)', hub: 'Hawassa / Bole', price: '118 ETB/kg', trend: '+6.5%' },
-    { crop: 'Table Potato (ድንች)', hub: 'Central Terminal', price: '47 ETB/kg', trend: '-1.8%' },
-    { crop: 'White Teff Magna (ማኛ ጤፍ)', hub: 'Gondar Plains', price: '125 ETB/kg', trend: '+1.5%' },
-  ];
-
   return (
     <div className="space-y-16 pb-20">
-      {/* Live Hub Commodity Rates Ticker */}
-      <div className="bg-[#0F172A] text-white py-2.5 px-4 overflow-x-auto border-b border-slate-800">
-        <div className="max-w-7xl mx-auto flex items-center gap-8 text-xs font-mono tabular-nums whitespace-nowrap">
-          <div className="flex items-center gap-1.5 text-emerald-400 font-semibold uppercase tracking-wider shrink-0">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            Live Hub Rates (ETB):
-          </div>
-          <div className="flex items-center gap-8">
-            {livePrices.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <span className="text-slate-200">{item.crop}</span>
-                <span className="text-slate-400">({item.hub})</span>
-                <span className="font-bold text-emerald-300">{item.price}</span>
-                <span className={item.trend.startsWith('+') ? 'text-emerald-400' : 'text-amber-400'}>
-                  {item.trend}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {/* Hero Section */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
@@ -87,6 +66,22 @@ export const LandingPage: React.FC = () => {
             <p className="text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
               {content.heroSubtitle}
             </p>
+
+            {/* Part 23 — active promotional banners from the CMS */}
+            {landingBanners.length > 0 && (
+              <div className="space-y-2 pt-4 max-w-2xl">
+                {landingBanners.map((b) => (
+                  <a
+                    key={b.id}
+                    href={b.destination_url || '#'}
+                    className="block p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/30 hover:border-[#15803D] transition-colors"
+                  >
+                    <div className="text-sm font-bold text-emerald-800 dark:text-emerald-300">{b.title}</div>
+                    {b.description && <div className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{b.description}</div>}
+                  </a>
+                ))}
+              </div>
+            )}
 
             {/* CTAs */}
             <div className="flex flex-wrap gap-3 pt-2">

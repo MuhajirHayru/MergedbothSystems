@@ -17,6 +17,12 @@ class Role(models.TextChoices):
     USER_ADMIN = "USER_ADMIN", "User Admin"
     FINANCIAL_MANAGER = "FINANCIAL_MANAGER", "Financial Manager"
     SUPER_ADMIN = "SUPER_ADMIN", "Super Admin"
+    TOP_USER_ADMIN = "TOP_USER_ADMIN", "Top User Admin"
+    REGIONAL_ADMIN = "REGIONAL_ADMIN", "Regional Admin"
+    ZONAL_ADMIN = "ZONAL_ADMIN", "Zonal Admin"
+    WEREDA_ADMIN = "WEREDA_ADMIN", "Wereda Admin"
+    CUSTOMER_SUPPORT = "CUSTOMER_SUPPORT", "Customer Support"
+    LOGISTICS_MANAGER = "LOGISTICS_MANAGER", "Logistics Manager"
 
 
 class AccountStatus(models.TextChoices):
@@ -230,6 +236,14 @@ class PlatformSettings(models.Model):
         help_text="Platform-wide announcement shown to every user.",
     )
     maintenance_mode = models.BooleanField(default=False)
+    orders_disabled = models.BooleanField(
+        default=False,
+        help_text="Emergency stop: reject new marketplace order creation.",
+    )
+    discount_campaigns_disabled = models.BooleanField(
+        default=False,
+        help_text="Emergency stop: pause all discount campaigns platform-wide.",
+    )
     max_failed_login_attempts = models.PositiveSmallIntegerField(
         default=3,
         help_text="Consecutive invalid passwords before a temporary lockout.",
@@ -299,6 +313,57 @@ def default_website_content():
     }
 
 
+class Banner(models.Model):
+    """Part 23 — promotional banners rendered on the public landing page."""
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=120)
+    description = models.TextField(blank=True, default="")
+    image = models.ImageField(
+        upload_to=website_asset_path,
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
+    destination_url = models.URLField(max_length=500, blank=True, default="")
+    display_order = models.PositiveIntegerField(default=0)
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="banners_created",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="banners_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "promo_banners"
+        ordering = ["display_order", "-created_at"]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError as _VE
+        if self.starts_at and self.ends_at and self.ends_at <= self.starts_at:
+            raise _VE({"ends_at": "Must be later than starts_at."})
+        if not self.image and not self.title:
+            raise _VE({"title": "A banner needs at least a title or an image."})
+
+    @property
+    def currently_scheduled(self):
+        now = timezone.now()
+        if self.starts_at and self.starts_at > now:
+            return False
+        if self.ends_at and self.ends_at <= now:
+            return False
+        return True
+
+    def __str__(self):
+        return f"{self.title} (#{self.display_order})"
+
+
 class WebsiteContent(models.Model):
     """Persistent public branding and editable website copy."""
 
@@ -345,7 +410,11 @@ class WebsiteContent(models.Model):
 
 
 class AuditLog(models.Model):
-    """Immutable trail of privileged Super Admin actions (FR-SA-02, FR-SA-03)."""
+    """Immutable trail of privileged and security-relevant actions (FR-SA-02/03, Part 20).
+
+    ``ip_address``/``user_agent``/``success`` are recorded where the write site
+    has access to the request; older entries legitimately carry them empty.
+    """
 
     id = models.BigAutoField(primary_key=True)
     actor = models.ForeignKey(
@@ -355,12 +424,26 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=64)
     target = models.CharField(max_length=255, blank=True, default="")
     detail = models.TextField(blank=True, default="")
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=400, blank=True, default="")
+    success = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "audit_logs"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["action", "created_at"])]
+        indexes = [
+            models.Index(fields=["action", "created_at"]),
+            models.Index(fields=["success", "created_at"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError("Audit records are append-only and cannot be edited.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Audit records cannot be deleted.")
 
     def __str__(self):
         return f"{self.action} on {self.target} by {self.actor}"

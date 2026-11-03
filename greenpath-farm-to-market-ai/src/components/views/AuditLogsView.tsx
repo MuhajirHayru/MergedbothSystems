@@ -1,5 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { api } from '../../services/apiClient';
+import { formatApiError } from '../../lib/apiErrors';
+import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { Download } from 'lucide-react';
 import {
   FileText,
   Search,
@@ -14,6 +18,38 @@ import {
 
 export const AuditLogsView: React.FC = () => {
   const { auditLogs } = useApp();
+  const [summary, setSummary] = useState<any>(null);
+  const [summaryDays, setSummaryDays] = useState(30);
+  const [summaryError, setSummaryError] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.auditCenter.summary(summaryDays)
+      .then((res) => { if (!cancelled) { setSummary(res.data); setSummaryError(''); } })
+      .catch((err) => { if (!cancelled) setSummaryError(formatApiError(err, 'Audit summary could not be loaded.')); });
+    return () => { cancelled = true; };
+  }, [summaryDays]);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const res = await api.auditCenter.exportCsv(summaryDays);
+      const blob = new Blob([res.data], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `greenpath-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setSummaryError(formatApiError(err, 'Export failed.'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
@@ -48,6 +84,80 @@ export const AuditLogsView: React.FC = () => {
             Read-only chronological trail of financial settlements, user accreditations, and security events.
           </p>
         </div>
+      </div>
+
+      {/* Part 20 — security activity summary */}
+      <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200">Security &amp; activity summary</div>
+          <div className="flex items-center gap-2">
+            <select
+              value={summaryDays}
+              onChange={(e) => setSummaryDays(Number(e.target.value))}
+              className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5 text-slate-900 dark:text-slate-100"
+            >
+              {[7, 30, 90, 365].map((d) => <option key={d} value={d}>Last {d} days</option>)}
+            </select>
+            <button
+              onClick={() => void exportCsv()}
+              disabled={exporting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60"
+            >
+              <Download className="w-3.5 h-3.5" /> {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
+          </div>
+        </div>
+        {summaryError && (
+          <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{summaryError}</div>
+        )}
+        {summary && (
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              {[
+                ['Total activities', summary.totals.total_activities],
+                ['Successful', summary.totals.successful],
+                ['Failed', summary.totals.failed],
+                ['Successful logins', summary.totals.successful_logins],
+                ['Failed logins', summary.totals.failed_logins],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">{label}</div>
+                  <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100">{String(value)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500 mb-2">Activities per day (failed in rose)</div>
+                <div className="h-44">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={summary.trend.slice(-21)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="day" tick={{ fontSize: 9 }} />
+                      <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="total" fill="#15803D" />
+                      <Bar dataKey="failed" fill="#e11d48" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500 mb-2">By module</div>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {summary.by_category.map((row: { category: string; total: number }) => (
+                      <tr key={row.category} className="border-b border-slate-100 dark:border-slate-800/60">
+                        <td className="py-1.5 text-slate-600 dark:text-slate-300">{row.category}</td>
+                        <td className="py-1.5 text-right font-mono font-bold">{row.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Filter Bar */}

@@ -768,9 +768,45 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
             </div>
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Order total</span>
-                <span className="font-mono font-bold">{formatEtb(order.total_amount)}</span>
+                <span className="text-slate-500 dark:text-slate-400">Original price</span>
+                <span className="font-mono">{formatEtb(order.total_amount)}</span>
               </div>
+              {Number(order.discount_amount) > 0 && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Discount {order.discount_snapshot?.code ? `(${order.discount_snapshot.code})` : ''}
+                    </span>
+                    <span className="font-mono text-rose-600 dark:text-rose-400">
+                      -{formatEtb(order.discount_amount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Funding source</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                      order.discount_snapshot?.funding_source === 'SELLER'
+                        ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300'
+                        : 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300'
+                    }`}>
+                      {order.discount_snapshot?.funding_source === 'SELLER'
+                        ? 'Seller funded'
+                        : 'Green Path funded'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-2">
+                    <span className="text-slate-500 dark:text-slate-400 font-semibold">Final payable</span>
+                    <span className="font-mono font-bold">
+                      {formatEtb(Number(order.total_amount) - Number(order.discount_amount || 0))}
+                    </span>
+                  </div>
+                </>
+              )}
+              {(!order.discount_amount || Number(order.discount_amount) === 0) && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Order total</span>
+                  <span className="font-mono font-bold">{formatEtb(order.total_amount)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Payment state</span>
                 <span className={`font-bold ${paymentClasses(order.payment_status)}`}>

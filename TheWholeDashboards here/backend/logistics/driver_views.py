@@ -113,7 +113,7 @@ def _driver_can_accept_work(user):
     application = DriverApplication.objects.filter(profile__user=user).first()
     if (
         not user.is_active
-        or user.role != "driver"
+        or user.role != "DRIVER"
         or application is None
         or application.status != DriverApplication.Status.APPROVED
         or application.license_expiry is None

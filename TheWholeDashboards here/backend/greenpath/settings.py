@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "assistant",
     "payments",
     "notifications",
+    "support",
     "dashboard",
     "registrations",
     # Merged DriverApp backend (agricultural logistics). Its LogisticsUser is a

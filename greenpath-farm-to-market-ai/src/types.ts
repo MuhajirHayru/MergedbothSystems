@@ -7,7 +7,7 @@ export type UserRole =
   | 'financial_manager'
   | 'user_admin'
   | 'top_user_admin'
-  | 'super_admin';
+  | 'super_admin' | 'logistics_manager' | 'customer_support';
 
 export type Language = 'en' | 'am' | 'om';
 

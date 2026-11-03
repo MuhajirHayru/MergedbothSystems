@@ -1,5 +1,12 @@
 from django.urls import path
 
+from payments.financial_api import MyPayslipsView
+from .banner_views import (
+    BannerAdminView,
+    BannerDetailView,
+    BannerReorderView,
+    PublicBannerListView,
+)
 from .views import (
     AnnouncementView,
     DriverTokenMintView,
@@ -30,6 +37,8 @@ urlpatterns = [
     path("profile/", UpdateProfileView.as_view(), name="profile"),
     path("profile/photo/", UpdateProfilePhotoView.as_view(), name="profile_photo"),
     path("announcement/", AnnouncementView.as_view(), name="announcement"),
-    path("website-content/", WebsiteContentView.as_view(), name="website_content"),
+    path("banners/", PublicBannerListView.as_view(), name="public_banners"),
+    path("my-payslips/", MyPayslipsView.as_view(), name="my_payslips"),
+        path("website-content/", WebsiteContentView.as_view(), name="website_content"),
     path("driver-token/", DriverTokenMintView.as_view(), name="driver_token_mint"),
 ]

@@ -147,11 +147,26 @@ def manageable_admins_for(actor, queryset=None):
     return scoped.filter(administrative_scope__location_id__in=descendant_ids)
 
 
+SCOPED_ADMIN_ROLES = (
+    Role.USER_ADMIN,
+    Role.TOP_USER_ADMIN,
+    Role.REGIONAL_ADMIN,
+    Role.ZONAL_ADMIN,
+    Role.WEREDA_ADMIN,
+)
+
+
 def users_visible_to_admin(user, queryset=None):
+    """Geographic scope enforcement for every administrative role (Parts 19/22/29).
+
+    Super Admin sees everything. TOP_USER_ADMIN sees the whole country through a
+    GLOBAL scope. REGIONAL/ZONAL/WEREDA/USER Admins see only accounts whose
+    registration location falls inside their scope's descendant tree.
+    """
     queryset = queryset if queryset is not None else User.objects.all()
     if user.role == Role.SUPER_ADMIN:
         return queryset
-    if user.role != Role.USER_ADMIN:
+    if user.role not in SCOPED_ADMIN_ROLES:
         return queryset.none()
     scope = administrator_scope_for(user)
     if scope is None:

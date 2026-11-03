@@ -52,7 +52,13 @@ class IsRetailer(IsRole):
 
 
 class IsUserAdmin(IsRole):
-    allowed_roles = ("USER_ADMIN",)
+    allowed_roles = (
+        "USER_ADMIN",
+        "TOP_USER_ADMIN",
+        "REGIONAL_ADMIN",
+        "ZONAL_ADMIN",
+        "WEREDA_ADMIN",
+    )
 
 
 class IsFinancialManager(IsRole):

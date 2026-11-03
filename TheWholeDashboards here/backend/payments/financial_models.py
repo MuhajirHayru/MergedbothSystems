@@ -349,3 +349,53 @@ class FinancialPayrollRecord(models.Model):
     @property
     def net_amount(self):
         return self.base_amount + self.allowances - self.deductions - self.tax_amount
+
+
+class EmployeeProfile(models.Model):
+    """Part 25 — staff employee registry (separate from marketplace participants)."""
+
+    class EmploymentStatus(models.TextChoices):
+        ACTIVE = "ACTIVE", "Active"
+        INACTIVE = "INACTIVE", "Inactive"
+        TERMINATED = "TERMINATED", "Terminated"
+
+    class ContractType(models.TextChoices):
+        PERMANENT = "PERMANENT", "Permanent"
+        CONTRACT = "CONTRACT", "Contract"
+        PART_TIME = "PART_TIME", "Part time"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="employee_profile")
+    employee_code = models.CharField(max_length=20, unique=True, blank=True)
+    department = models.CharField(max_length=120, blank=True, default="")
+    job_title = models.CharField(max_length=120, blank=True, default="")
+    employment_status = models.CharField(max_length=12, choices=EmploymentStatus.choices, default=EmploymentStatus.ACTIVE)
+    contract_type = models.CharField(max_length=12, choices=ContractType.choices, default=ContractType.PERMANENT)
+    hired_at = models.DateField(null=True, blank=True)
+    monthly_base_salary = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="employees_created")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "employee_profiles"
+        ordering = ["employee_code"]
+        constraints = [
+            models.UniqueConstraint(fields=["user"], name="unique_employee_per_user"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.employee_code:
+            last = EmployeeProfile.objects.order_by("-created_at").first()
+            seq = (int(last.employee_code.split("-")[-1]) + 1) if last and last.employee_code.startswith("GP-EMP-") else 1
+            self.employee_code = f"GP-EMP-{seq:04d}"
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        staff_roles = ("USER_ADMIN", "FINANCIAL_MANAGER", "SUPER_ADMIN", "CUSTOMER_SUPPORT",
+                       "TOP_USER_ADMIN", "REGIONAL_ADMIN", "ZONAL_ADMIN", "WEREDA_ADMIN")
+        if self.user_id and self.user.role not in staff_roles:
+            raise ValidationError({"user": "Only staff accounts can be registered as employees."})
+
+    def __str__(self):
+        return f"{self.employee_code} {self.user}"

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useApp, ReviewOutcome } from '../../context/AppContext';
 import { mapBankAccount } from '../../services/adapters';
-import { api } from '../../services/apiClient';
+import { api, apiClient } from '../../services/apiClient';
+import { DiscountManagementView } from './DiscountManagementView';
 import { formatApiError } from '../../lib/apiErrors';
 import { DepositRecord, PayoutRequest, TransactionRecord } from '../../types';
 import {
@@ -70,6 +71,7 @@ export const FinancialManagerDashboard: React.FC = () => {
     | 'delivery_fees'
     | 'bank_accounts'
     | 'ledger'
+    | 'discounts'
   >(initialFinancialTab ? 'financial_controls' : 'financial_overview');
 
   // Filters
@@ -80,6 +82,8 @@ export const FinancialManagerDashboard: React.FC = () => {
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('all');
   const [selectedPaymentTypeFilter, setSelectedPaymentTypeFilter] = useState<string>('all');
   const [searchLedger, setSearchLedger] = useState<string>('');
+  const [pnl, setPnl] = useState<any>(null);
+  const [pnlError, setPnlError] = useState('');
 
   // Real financial analytics (server-side aggregates only)
   const [analytics, setAnalytics] = useState<any>(null);
@@ -101,6 +105,13 @@ export const FinancialManagerDashboard: React.FC = () => {
       .then((response) => { setFinancialReport(response.data); setFinancialReportError(''); })
       .catch((error) => { setFinancialReport(null); setFinancialReportError(formatApiError(error, 'Financial report is unavailable.')); });
   }, [timeRange, customDateFrom, customDateTo]);
+
+  useEffect(() => {
+    if (activeTab !== 'ledger') return;
+    apiClient.get('/payments/financial/pnl/')
+      .then((res: any) => { setPnl(res.data); setPnlError(''); })
+      .catch(() => setPnlError('Profit and loss is not available right now.'));
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== 'financial_controls') return;
@@ -619,6 +630,7 @@ export const FinancialManagerDashboard: React.FC = () => {
           { id: 'payouts', label: `Payout Requests (${pendingPayoutCount})` },
           { id: 'wallet_mgmt', label: 'Wallet Vault & Escrow' },
           { id: 'delivery_fees', label: 'Delivery Fee Agreements' },
+          { id: 'discounts', label: 'Discounts & Promotions' },
           { id: 'bank_accounts', label: 'Bank Accounts Review' },
           { id: 'ledger', label: 'Append-Only Ledger' },
         ].map((tab) => (
@@ -635,6 +647,10 @@ export const FinancialManagerDashboard: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {activeTab === 'discounts' && (
+        <DiscountManagementView />
+      )}
 
       {activeTab === 'financial_controls' && (
         <div className="space-y-5">
@@ -2084,6 +2100,38 @@ export const FinancialManagerDashboard: React.FC = () => {
 
       {/* SUB-TAB 7: Append-Only Ledger */}
       {activeTab === 'ledger' && (
+        <div className="space-y-5">
+        {pnl && (
+          <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">Profit &amp; Loss (from posted ledger)</h3>
+              <p className="text-[11px] text-slate-400">{pnl.note}</p>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40">
+                <div className="text-[10px] text-slate-500 uppercase font-semibold">Platform revenue</div>
+                <div className="text-lg font-bold font-mono text-emerald-700 dark:text-emerald-400">{pnl.revenue.available ? `${pnl.revenue.total} ETB` : 'Unavailable'}</div>
+                {pnl.revenue.available && <div className="text-[10px] text-slate-400">{pnl.revenue.lines.map((l: any) => `${l.category.replace(/_/g, ' ')}: ${l.amount}`).join(' · ')}</div>}
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40">
+                <div className="text-[10px] text-slate-500 uppercase font-semibold">Expenses</div>
+                <div className="text-lg font-bold font-mono text-rose-700 dark:text-rose-400">{pnl.expenses.available ? `${pnl.expenses.total} ETB` : 'Unavailable'}</div>
+                {pnl.expenses.available && <div className="text-[10px] text-slate-400">promo {pnl.expenses.promotion ?? '—'} · payroll {pnl.expenses.payroll ?? '—'} · opex {pnl.expenses.operating ?? '—'}</div>}
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40">
+                <div className="text-[10px] text-slate-500 uppercase font-semibold">Gross profit</div>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100">{pnl.gross_profit != null ? `${pnl.gross_profit} ETB` : 'Unavailable'}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40">
+                <div className="text-[10px] text-slate-500 uppercase font-semibold">Net profit</div>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100">{pnl.net_profit != null ? `${pnl.net_profit} ETB` : 'Unavailable — inputs incomplete'}</div>
+              </div>
+            </div>
+          </div>
+        )}
+        {pnlError && (
+          <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 text-xs text-amber-700 dark:text-amber-300">{pnlError}</div>
+        )}
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -2156,6 +2204,7 @@ export const FinancialManagerDashboard: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 

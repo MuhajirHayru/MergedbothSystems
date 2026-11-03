@@ -3,13 +3,33 @@
 // ---------------------------------------------------------------------------
 
 export type UserRole =
+  | "public"
+  | "farmer"
+  | "wholesaler"
+  | "retailer"
+  | "driver"
+  | "user_admin"
+  | "financial_manager"
+  | "super_admin"
+  | "top_user_admin"
+  | "regional_admin"
+  | "zonal_admin"
+  | "wereda_admin"
+  | "logistics_manager"
+  | "customer_support"
   | "FARMER"
   | "WHOLESALER"
   | "RETAILER"
   | "DRIVER"
   | "USER_ADMIN"
   | "FINANCIAL_MANAGER"
-  | "SUPER_ADMIN";
+  | "SUPER_ADMIN"
+  | "TOP_USER_ADMIN"
+  | "REGIONAL_ADMIN"
+  | "ZONAL_ADMIN"
+  | "WEREDA_ADMIN"
+  | "LOGISTICS_MANAGER"
+  | "CUSTOMER_SUPPORT";
 
 export type AssistantLanguage = "auto" | "en" | "am" | "om";
 
@@ -825,6 +845,15 @@ export interface Order {
   quantity: string;
   total_amount: string;
   total: string;
+  discount_amount?: string;
+  discount_snapshot?: null | {
+    code?: string;
+    funding_source?: "PLATFORM" | "SELLER";
+    original_amount?: string;
+    discount_amount?: string;
+    final_amount?: string;
+    [key: string]: unknown;
+  };
   status: OrderStatus;
   status_display: string;
   payment_status: string;
@@ -1364,3 +1393,79 @@ export interface Envelope<T> {
 export type WithResource<K extends string, T> = { success: true } & {
   [P in K]: T;
 };
+
+// ---------------------------------------------------------------------------
+// Discounts and promotions (Part 3.4)
+// ---------------------------------------------------------------------------
+
+export type DiscountType = "FIXED" | "PERCENTAGE";
+export type DiscountFundingSource = "PLATFORM" | "SELLER";
+export type DiscountCampaignStatus =
+  | "SCHEDULED"
+  | "ACTIVE"
+  | "INACTIVE"
+  | "EXPIRED";
+
+export interface DiscountCampaign {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  discount_type: DiscountType;
+  discount_value: string;
+  max_discount_amount: null | string;
+  min_order_value: string;
+  first_order_only: boolean;
+  funding_source: DiscountFundingSource;
+  product: null | string;
+  product_category: string;
+  seller: null | string;
+  usage_limit: null | number;
+  per_user_limit: number;
+  starts_at: string;
+  ends_at: null | string;
+  is_active: boolean;
+  effective_status: DiscountCampaignStatus;
+  total_redemptions: number;
+  total_discount_amount: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscountCampaignInput {
+  name: string;
+  code: string;
+  description?: string;
+  discount_type: DiscountType;
+  discount_value: string;
+  max_discount_amount?: null | string;
+  min_order_value?: string;
+  first_order_only?: boolean;
+  funding_source: DiscountFundingSource;
+  product?: null | string;
+  product_category?: string;
+  seller?: null | string;
+  usage_limit?: null | number;
+  per_user_limit?: number;
+  starts_at: string;
+  ends_at?: null | string;
+}
+
+export interface DiscountRedemptionRow {
+  id: string;
+  campaign: string;
+  code: string;
+  order_reference: string;
+  buyer: string;
+  original_amount: string;
+  discount_amount: string;
+  final_amount: string;
+  funded_by: DiscountFundingSource;
+  applied_at: string;
+}
+
+export interface DiscountRedemptionReport {
+  summary: { count: number; total_discount_amount: string };
+  redemptions: DiscountRedemptionRow[];
+}

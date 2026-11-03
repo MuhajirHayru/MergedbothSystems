@@ -95,7 +95,7 @@ interface AppContextType {
   // Orders
   orders: Order[];
   updateOrderStatus: (orderId: string, status: OrderStatus, note?: string) => Promise<void>;
-  createOrder: (productId: string, quantity: number, agreedPrice: number, corridor: string) => Promise<Order>;
+  createOrder: (productId: string, quantity: number, agreedPrice: number, corridor: string, couponCode?: string) => Promise<Order>;
 
   // Wallet & Financial
   wallet: WalletState;
@@ -690,7 +690,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     productId: string,
     quantity: number,
     agreedPrice: number,
-    corridor: string
+    corridor: string,
+    couponCode?: string
   ): Promise<Order> => {
     const targetProduct = products.find((p) => p.id === productId);
     try {
@@ -698,6 +699,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         product: productId,
         quantity,
         agreed_price_per_unit: agreedPrice,
+        ...(couponCode ? { coupon_code: couponCode } : {}),
       });
       const raw = res.data?.order || res.data;
       const newOrder = mapOrder(raw);

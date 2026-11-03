@@ -369,7 +369,7 @@ class OrderViewSet(
         if idempotency_key:
             existing = Order.objects.filter(idempotency_key=idempotency_key).first()
             if existing is not None:
-                if existing.buyer_id != request.user.id:
+                if existing.buyer.pk != request.user.id:
                     raise ValidationError("This idempotency key belongs to another order.")
                 return Response(
                     {"success": True, "order": OrderSerializer(
@@ -410,10 +410,26 @@ class OrderViewSet(
             quantity = serializer.validated_data["quantity"]
             if quantity > locked.quantity:
                 raise ValidationError("Not enough quantity available.")
+            from users.models import PlatformSettings
+            _config = PlatformSettings.load()
+            if _config.maintenance_mode or _config.orders_disabled:
+                raise ValidationError(
+                    {"order": "New orders are temporarily disabled by platform administrators."}
+                )
             order_total = quantity * locked.price_per_unit
+            from .discount_services import resolve_discount_for_order, record_redemption
+
+            campaign, discount_amount, discount_snapshot = resolve_discount_for_order(
+                buyer=request.user,
+                product=locked,
+                seller=locked.owner,
+                gross_total=order_total,
+                coupon_code=request.data.get("coupon_code"),
+            )
+            payable_total = order_total - discount_amount
             buyer_wallet = wallet_for(request.user, lock=True)
-            if buyer_wallet.available_balance < order_total:
-                shortfall = order_total - buyer_wallet.available_balance
+            if buyer_wallet.available_balance < payable_total:
+                shortfall = payable_total - buyer_wallet.available_balance
                 raise ValidationError(
                     {
                         "wallet": (
@@ -431,6 +447,8 @@ class OrderViewSet(
                 "farmer": locked.owner if buyer_role == Role.WHOLESALER else None,
                 "retailer": request.user if buyer_role == Role.RETAILER else None,
                 "total_amount": order_total,
+                "discount_amount": discount_amount,
+                "discount_snapshot": discount_snapshot,
                 "status": OrderStatus.PENDING_SELLER_APPROVAL,
                 "payment_status": OrderPaymentStatus.RESERVED,
                 "idempotency_key": idempotency_key,
@@ -442,6 +460,14 @@ class OrderViewSet(
                 order_data["idempotency_key"] = idempotency_key
             order = serializer.save(**order_data)
             reserve_order_funds(order, request.user)
+            if campaign is not None and discount_snapshot is not None:
+                record_redemption(
+                    order=order,
+                    buyer=request.user,
+                    campaign=campaign,
+                    discount=discount_amount,
+                    snapshot=discount_snapshot,
+                )
             locked.quantity -= quantity
             if locked.quantity <= 0:
                 locked.status = ProductStatus.SOLD
@@ -605,6 +631,8 @@ class OrderViewSet(
             # The enqueue step authorizes the shipment on a separately locked
             # instance, so re-read it for an accurate response (and accurate UI).
             details.refresh_from_db()
+            from .freight_services import ensure_freight_job_for_order
+            ensure_freight_job_for_order(order.pk)
         return Response(self._shipment_details_response(details))
 
     @staticmethod
@@ -716,7 +744,7 @@ class OrderViewSet(
                     if not WalletTransaction.objects.filter(
                         order=order,
                         transaction_type=WalletTransactionType.ORDER_RESERVATION,
-                        held_delta=order.total_amount,
+                        held_delta=order.payable_amount,
                     ).exists():
                         raise ValidationError(
                             {

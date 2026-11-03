@@ -1,6 +1,7 @@
 """Atomic wallet movements for manually verified funding and escrow."""
 
 import secrets
+from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -126,7 +127,7 @@ def payout_reservation_is_active(payout):
 def reserve_order_funds(order, actor):
     """Move order funds from spendable to held balance exactly once."""
     wallet = wallet_for(order.buyer, lock=True)
-    amount = order.total_amount
+    amount = order.payable_amount
     if wallet.available_balance < amount:
         shortfall = amount - wallet.available_balance
         raise ValidationError(
@@ -166,7 +167,7 @@ def reserve_order_funds(order, actor):
 @transaction.atomic
 def release_order_reservation(order, actor, *, transaction_type, description):
     wallet = Wallet.objects.select_for_update().get(user=order.buyer)
-    amount = order.total_amount
+    amount = order.payable_amount
     if wallet.held_balance < amount:
         raise ValidationError({"wallet": "Held order funds are not available."})
     wallet.held_balance -= amount
@@ -215,7 +216,7 @@ def release_escrow(order, financial_manager, external_reference=""):
         raise ValidationError({"order": "A disputed order cannot be released."})
 
     buyer_wallet = Wallet.objects.select_for_update().get(user=locked_order.buyer)
-    amount = locked_order.total_amount
+    amount = locked_order.payable_amount
     if buyer_wallet.held_balance < amount:
         raise ValidationError({"wallet": "Held escrow funds do not cover this order."})
     seller_wallet = wallet_for(locked_order.seller, lock=True)
@@ -246,8 +247,42 @@ def release_escrow(order, financial_manager, external_reference=""):
     locked_order.status = OrderStatus.COMPLETED
     locked_order.save(update_fields=["payment_status", "status", "updated_at"])
     from .financial_services import post_completed_order
-    snapshot = post_completed_order(locked_order, actor=financial_manager)
+
+    discount = locked_order.discount_amount or Decimal("0")
+    funded_by = (locked_order.discount_snapshot or {}).get("funding_source", "")
+    if discount and funded_by == "SELLER":
+        # Seller funded: the seller's effective gross is the discounted total.
+        snapshot = post_completed_order(
+            locked_order, actor=financial_manager, gross_override=amount
+        )
+        promotion_topup = Decimal("0")
+    elif discount and funded_by == "PLATFORM":
+        # Platform funded: commission applies to the original gross; the
+        # discount itself is booked as Green Path marketing expense below.
+        snapshot = post_completed_order(locked_order, actor=financial_manager)
+        promotion_topup = discount
+    else:
+        snapshot = post_completed_order(locked_order, actor=financial_manager)
+        promotion_topup = Decimal("0")
     seller_proceeds = snapshot.seller_proceeds
+    if promotion_topup > 0:
+        post_journal_entry(
+            reference=f"order-promotion:{locked_order.pk}",
+            category="PROMOTION_EXPENSE",
+            amount=promotion_topup, currency=buyer_wallet.currency,
+            debit_code="EXPENSE:PROMOTIONS", debit_name="Platform promotion expense",
+            debit_category="EXPENSE",
+            credit_code="LIABILITY:SELLER_WALLET", credit_name="Seller wallet liability",
+            credit_category="LIABILITY",
+            source="ORDER_DISCOUNT", source_reference=locked_order.reference,
+            actor=financial_manager,
+            description=(
+                f"Platform funded discount {locked_order.discount_snapshot.get('code')} "
+                f"on order {locked_order.reference}"
+            ),
+            related_user=locked_order.seller,
+            order_reference=locked_order.reference,
+        )
     if seller_proceeds > 0:
         seller_wallet.available_balance += seller_proceeds
         seller_wallet.save(update_fields=["available_balance", "updated_at"])

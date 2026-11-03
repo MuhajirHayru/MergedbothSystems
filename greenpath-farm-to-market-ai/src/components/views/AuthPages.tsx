@@ -108,6 +108,8 @@ export const LoginPage: React.FC = () => {
         user_admin: 'user_admin_dashboard',
         top_user_admin: 'top_user_admin_dashboard',
         super_admin: 'super_admin_dashboard',
+        logistics_manager: 'logistics_dashboard',
+        customer_support: 'support_management',
       };
       setActiveView(viewMap[role] || 'marketplace');
     } catch (err: any) {

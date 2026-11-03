@@ -11,6 +11,13 @@ import { FarmerDashboard } from './components/views/FarmerDashboard';
 import { WholesalerDashboard, RetailerDashboard } from './components/views/WholesalerDashboard';
 import { DriverDashboard } from './components/views/DriverDashboard';
 import { FinancialManagerDashboard } from './components/views/FinancialManagerDashboard';
+import { DiscountManagementView } from './components/views/DiscountManagementView';
+import { SupportManagementView } from './components/views/SupportManagementView';
+import { AccountControlPanel } from './components/views/AccountControlPanel';
+import { BannerManagementView } from './components/views/BannerManagementView';
+import { WishlistPanel, AdminProductsPanel, MessagingOversightPanel } from './components/views/SupportPanels';
+import { LogisticsDashboard } from './components/views/LogisticsDashboard';
+import { FreightBidsPanel, DriverFreightBoard, DriverAssignmentsPanel } from './components/views/FreightBiddingPanels';
 import { UserAdminDashboard } from './components/views/UserAdminDashboard';
 import { TopUserAdminDashboard } from './components/views/TopUserAdminDashboard';
 import { SuperAdminDashboard } from './components/views/SuperAdminDashboard';
@@ -72,6 +79,15 @@ const AppContent: React.FC = () => {
     '/retailer': 'retailer_dashboard',
     '/driver': 'driver_dashboard',
     '/financial-manager': 'financial_dashboard',
+    '/discounts': 'discount_management',
+    '/support': 'support_management',
+    '/controls': 'account_control',
+    '/banners': 'banner_management',
+    '/wishlist': 'wishlist',
+    '/product-visibility': 'admin_products',
+    '/messaging-oversight': 'messaging_oversight',
+    '/logistics-dashboard': 'logistics_dashboard',
+    '/freight-bids': 'freight_bids',
     '/admin': 'user_admin_dashboard',
     '/top-user-admin': 'top_user_dashboard',
     '/super-admin': 'super_admin_dashboard',
@@ -101,6 +117,15 @@ const AppContent: React.FC = () => {
     driver_shipments: '/driver',
     driver_waybills: '/driver',
     financial_dashboard: '/financial-manager',
+    discount_management: '/discounts',
+    support_management: '/support',
+    account_control: '/controls',
+    banner_management: '/banners',
+    wishlist: '/wishlist',
+    admin_products: '/product-visibility',
+    messaging_oversight: '/messaging-oversight',
+    logistics_dashboard: '/logistics-dashboard',
+    freight_bids: '/freight-bids',
     financial_controls: '/financial-manager#financial-controls',
     payment_verification: '/financial-manager',
     wallet_management: '/financial-manager',
@@ -202,6 +227,29 @@ const AppContent: React.FC = () => {
       case 'funding_requests':
       case 'bank_accounts':
         return <FinancialManagerDashboard />;
+      case 'discount_management':
+        return <DiscountManagementView />;
+      case 'support_management':
+        return <SupportManagementView staffView={['financial_manager', 'super_admin', 'user_admin'].includes(currentRole)} />;
+      case 'account_control':
+        return <AccountControlPanel />;
+      case 'banner_management':
+        return <BannerManagementView />;
+      case 'wishlist':
+        return <WishlistPanel />;
+      case 'admin_products':
+        return <AdminProductsPanel />;
+      case 'messaging_oversight':
+        return <MessagingOversightPanel />;
+      case 'logistics_dashboard':
+      case 'logistics_manager':
+        return <LogisticsDashboard />;
+      case 'freight_bids':
+        return <FreightBidsPanel />;
+      case 'driver_freight':
+        return <DriverFreightBoard />;
+      case 'driver_assignments':
+        return <DriverAssignmentsPanel />;
       case 'user_admin_dashboard':
       case 'pending_registrations':
       case 'all_users':

@@ -1,5 +1,7 @@
 from django.urls import path
 
+from .driver_admin_views import ScopedDriverListView
+from .oversight_views import AdminProductVisibilityView
 from .admin_views import (
     AllUsersView,
     ApproveUserView,
@@ -10,6 +12,8 @@ from .admin_views import (
 )
 
 urlpatterns = [
+    path("products/", AdminProductVisibilityView.as_view(), name="admin_products"),
+    path("drivers/", ScopedDriverListView.as_view(), name="admin_drivers"),
     # FR-UA-01
     path("pending-users/", PendingUsersView.as_view(), name="admin_pending_users"),
     # FR-UA-03

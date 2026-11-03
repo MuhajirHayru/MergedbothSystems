@@ -41,7 +41,17 @@ export const WalletView: React.FC = () => {
           availableBalanceETB: Number(w.available_balance ?? w.availableBalanceETB ?? 0),
           heldBalanceETB: Number(w.held_balance ?? w.heldBalanceETB ?? 0),
           totalVolumeETB: Number(w.incoming_total ?? w.totalVolumeETB ?? 0),
-          transactions: Array.isArray(txRes?.data?.results) ? txRes.data.results : Array.isArray(txRes?.data) ? txRes.data : [],
+          transactions: (Array.isArray(txRes?.data?.results) ? txRes.data.results : Array.isArray(txRes?.data) ? txRes.data : []).map((tx: any) => ({
+            id: tx.id,
+            date: tx.created_at ? new Date(tx.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—',
+            reference: tx.reference ?? tx.external_reference ?? '—',
+            type: String(tx.transaction_type ?? '').toLowerCase(),
+            amountETB: Number(tx.amount ?? 0),
+            direction: Number(tx.available_delta ?? 0) < 0 || Number(tx.held_delta ?? 0) < 0 ? 'out' : 'in',
+            counterparty: tx.order_reference ? `Order ${tx.order_reference}` : 'Wallet operation',
+            description: tx.description ?? '',
+            status: 'posted',
+          })),
           payouts: Array.isArray(payoutRes?.data?.results) ? payoutRes.data.results : Array.isArray(payoutRes?.data) ? payoutRes.data : [],
         });
         setBankAccounts(Array.isArray(bankRes?.data?.results) ? bankRes.data.results : Array.isArray(bankRes?.data) ? bankRes.data : []);
@@ -242,7 +252,7 @@ export const WalletView: React.FC = () => {
                   </td>
                   <td className="py-3 px-2 capitalize">
                     <span className="px-2 py-0.5 rounded font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px]">
-                      {tx.type.replace('_', ' ')}
+                      {String(tx.type ?? '').replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">

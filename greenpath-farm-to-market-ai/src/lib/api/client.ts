@@ -36,6 +36,9 @@ import type {
   FinancialReportQuery,
   FinancialOperationsSummary,
   DeliveryFeeAgreement,
+  DiscountCampaign,
+  DiscountCampaignInput,
+  DiscountRedemptionReport,
   LoginResponse,
   LoginUser,
   MeResponse,
@@ -907,6 +910,38 @@ export const paymentsApi = {
 
   receipt: (id: string) =>
     get<WithResource<"receipt", Record<string, unknown>>>(`/payments/${id}/receipt/`),
+};
+
+export const discountsApi = {
+  campaigns: (status?: string) =>
+    get<DiscountCampaign[]>(
+      "/payments/financial/discount-campaigns/",
+      toParams({ status }),
+    ),
+
+  createCampaign: (data: DiscountCampaignInput) =>
+    post<DiscountCampaign>("/payments/financial/discount-campaigns/", data),
+
+  updateCampaign: (id: string, data: Partial<DiscountCampaignInput>) =>
+    patch<DiscountCampaign>(
+      `/payments/financial/discount-campaigns/${id}/update/`,
+      data,
+    ),
+
+  campaignAction: (
+    id: string,
+    data: { action: "activate" | "deactivate"; reason?: string },
+  ) =>
+    post<DiscountCampaign>(
+      `/payments/financial/discount-campaigns/${id}/action/`,
+      data,
+    ),
+
+  redemptions: (campaignId?: string) =>
+    get<DiscountRedemptionReport>(
+      "/payments/financial/discount-redemptions/",
+      toParams({ campaign: campaignId }),
+    ),
 };
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,14 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .account_control_views import BulkAccountStatusView
+from .banner_views import BannerAdminView, BannerDetailView, BannerReorderView
+from .oversight_views import ConversationMessagesView, ConversationOversightView
+from .audit_views import (
+    AuditExportView,
+    AuditSummaryView,
+    UserActivityView,
+)
 from .superadmin_views import (
     AdminAccountViewSet,
     AnnouncementBroadcastView,
@@ -18,7 +26,14 @@ router = DefaultRouter()
 router.register("accounts", AdminAccountViewSet, basename="superadmin-accounts")
 router.register("audit", AuditLogListView, basename="superadmin-audit")
 
-urlpatterns = router.urls + [
+urlpatterns = [
+    # Part 22 — must precede the accounts router so 'bulk-status' is not read as a pk.
+    path(
+        "accounts/bulk-status/",
+        BulkAccountStatusView.as_view(),
+        name="superadmin_bulk_status",
+    ),
+] + router.urls + [
     # FR-SA-01
     path("data/", SuperAdminDataView.as_view(), name="superadmin_data"),
     path("users/", SuperAdminUsersListView.as_view(), name="superadmin_users"),
@@ -36,7 +51,24 @@ urlpatterns = router.urls + [
         WebsiteContentAdminView.as_view(),
         name="superadmin_website_content",
     ),
+    path("banners/", BannerAdminView.as_view(), name="superadmin_banners"),
+    path("banners/reorder/", BannerReorderView.as_view(), name="superadmin_banner_reorder"),
+    path("banners/<int:pk>/", BannerDetailView.as_view(), name="superadmin_banner_detail"),
     path("announcement/", AnnouncementBroadcastView.as_view(), name="superadmin_announcement"),
     # FR-SA-05
     path("health/", SystemHealthView.as_view(), name="superadmin_health"),
+    # Part 20 — master audit center
+    path("conversations/", ConversationOversightView.as_view(), name="superadmin_conversations"),
+    path(
+        "conversations/<uuid:pk>/messages/",
+        ConversationMessagesView.as_view(),
+        name="superadmin_conversation_messages",
+    ),
+    path("audit/summary/", AuditSummaryView.as_view(), name="superadmin_audit_summary"),
+    path("audit/export/", AuditExportView.as_view(), name="superadmin_audit_export"),
+    path(
+        "audit/user-activity/<uuid:user_id>/",
+        UserActivityView.as_view(),
+        name="superadmin_audit_user_activity",
+    ),
 ]

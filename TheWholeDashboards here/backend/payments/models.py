@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -14,6 +15,8 @@ from .financial_models import (
     FinancialOperatingExpense,
     FinancialPayrollRecord,
 )
+from .discount_models import DiscountCampaign, DiscountRedemption
+from .freight_models import FreightBid, FreightJob
 
 
 class PaymentStatus(models.TextChoices):
@@ -236,12 +239,21 @@ class Order(models.Model):
     )
     idempotency_key = models.CharField(max_length=100, blank=True, default="")
     delivery_information = models.TextField(blank=True, default="")
+    discount_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal("0")
+    )
+    discount_snapshot = models.JSONField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
     quality_confirmed_at = models.DateTimeField(null=True, blank=True)
     dispute_reason = models.TextField(blank=True, default="")
     rejection_reason = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def payable_amount(self):
+        """Amount actually charged to the buyer after any order discount."""
+        return self.total_amount - self.discount_amount
 
     objects = OrderQuerySet.as_manager()
 
@@ -898,3 +910,27 @@ class Review(models.Model):
                 name="review_rating_1_to_5",
             ),
         ]
+
+
+class WishlistItem(models.Model):
+    """Part 27.3 — persistent, server-owned wishlist for marketplace participants."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="wishlist_items"
+    )
+    product = models.ForeignKey(
+        "products.Product", on_delete=models.CASCADE, related_name="wishlisted_by"
+    )
+    note = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "wishlist_items"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "product"], name="unique_wishlist_user_product"),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} → {self.product_id}"

@@ -247,6 +247,60 @@ export const api = {
     walletActivityExport: (params?: any) =>
       apiClient.get('/dashboard/wallet-activity/export/', { params, responseType: 'blob' }),
   },
+  support: {
+    myTickets: () => apiClient.get('/support/tickets/'),
+    submitTicket: (data: { subject: string; body: string; category?: string; related_order_reference?: string }) =>
+      apiClient.post('/support/tickets/', data),
+    reply: (id: string, data: { body: string; reopen?: boolean }) =>
+      apiClient.post(`/support/tickets/${id}/reply/`, data),
+    inbox: (params?: Record<string, unknown>) => apiClient.get('/support/inbox/', { params }),
+    action: (id: string, data: Record<string, unknown>) => apiClient.post(`/support/inbox/${id}/action/`, data),
+    bulk: (data: Record<string, unknown>) => apiClient.post('/support/inbox/bulk/', data),
+  },
+  banners: {
+    public: () => apiClient.get('/auth/banners/'),
+    adminList: () => apiClient.get('/superadmin/banners/'),
+    create: (data: FormData) => apiClient.post('/superadmin/banners/', data),
+    update: (id: number, data: FormData) => apiClient.patch(`/superadmin/banners/${id}/`, data),
+    remove: (id: number) => apiClient.delete(`/superadmin/banners/${id}/`),
+    reorder: (order: number[]) => apiClient.post('/superadmin/banners/reorder/', { order }),
+  },
+  wishlist: {
+    list: () => apiClient.get('/payments/wishlist/'),
+    add: (product: string, note?: string) => apiClient.post('/payments/wishlist/', { product, note }),
+    remove: (product: string) => apiClient.delete('/payments/wishlist/', { data: { product } }),
+  },
+  freight: {
+    staffJobs: (params?: Record<string, unknown>) => apiClient.get('/payments/financial/freight-jobs/', { params }),
+    assignBid: (jobId: string, bidId: string) => apiClient.post(`/payments/financial/freight-jobs/${jobId}/assign/`, { bid_id: bidId }),
+    cancelJob: (jobId: string, reason: string) => apiClient.post(`/payments/financial/freight-jobs/${jobId}/cancel/`, { reason }),
+    driverJobs: () => logisticsClient.get('/logistics/freight-jobs/'),
+    placeBid: (jobId: string, data: { amount: string; estimated_hours: number; message?: string }) =>
+      logisticsClient.post(`/logistics/freight-jobs/${jobId}/bid/`, data),
+    myBids: () => logisticsClient.get('/logistics/freight-jobs/my-bids/'),
+    myAssignments: () => logisticsClient.get('/logistics/freight-jobs/my-assignments/'),
+    availability: () => logisticsClient.get('/drivers/me/availability/'),
+    setAvailability: (available: boolean) => logisticsClient.patch('/drivers/me/availability/', { available }),
+    board: (params?: Record<string, unknown>) => apiClient.get('/payments/financial/freight-board/', { params }),
+    tracking: (orderRef: string) => apiClient.get(`/payments/financial/freight-board/${orderRef}/tracking/`),
+  },
+  oversight: {
+    adminProducts: (params?: Record<string, unknown>) => apiClient.get('/admin/products/', { params }),
+    conversations: () => apiClient.get('/superadmin/conversations/'),
+    conversationMessages: (id: string, reason: string) => apiClient.get(`/superadmin/conversations/${id}/messages/`, { params: { reason } }),
+  },
+  auditCenter: {
+    summary: (days: number) => apiClient.get('/superadmin/audit/summary/', { params: { days } }),
+    exportCsv: (days: number) => apiClient.get('/superadmin/audit/export/', { params: { days }, responseType: 'blob' }),
+    userActivity: (userId: string) => apiClient.get(`/superadmin/audit/user-activity/${userId}/`),
+  },
+  discounts: {
+    campaigns: (params?: any) => apiClient.get('/payments/financial/discount-campaigns/', { params }),
+    createCampaign: (data: any) => apiClient.post('/payments/financial/discount-campaigns/', data),
+    updateCampaign: (id: string, data: any) => apiClient.patch(`/payments/financial/discount-campaigns/${id}/update/`, data),
+    campaignAction: (id: string, data: any) => apiClient.post(`/payments/financial/discount-campaigns/${id}/action/`, data),
+    redemptions: (params?: any) => apiClient.get('/payments/financial/discount-redemptions/', { params }),
+  },
   financialControls: {
     configurations: (params?: any) => apiClient.get('/payments/financial/configurations/', { params }),
     createConfiguration: (data: any) => apiClient.post('/payments/financial/configurations/', data),

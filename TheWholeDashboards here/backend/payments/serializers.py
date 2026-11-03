@@ -201,6 +201,10 @@ class PaymentRecordSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     delivery_information = serializers.SerializerMethodField()
     counterparty_contact = serializers.SerializerMethodField()
+    payable_amount = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True
+    )
+    discount_snapshot = serializers.JSONField(read_only=True)
 
     wholesaler_name = serializers.CharField(source="wholesaler.full_name", read_only=True)
     farmer_name = serializers.CharField(
@@ -249,7 +253,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "buyer_financially_verified", "seller_is_online",
             "product", "product_title", "product_image", "product_unit",
             "seller_id", "buyer_id", "quantity",
-            "total_amount", "total", "status", "status_display",
+            "total_amount", "total", "discount_amount", "payable_amount",
+            "discount_snapshot", "status", "status_display",
             "payment_status", "payment_status_display", "delivery_information",
             "counterparty_contact", "shipment",
             "delivered_at", "quality_confirmed_at", "dispute_reason",

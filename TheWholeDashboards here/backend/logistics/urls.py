@@ -1,5 +1,11 @@
 from django.urls import path
 
+from payments.freight_bid_views import (
+    FreightBidView,
+    FreightJobBoardView,
+    MyAssignmentsView,
+    MyFreightBidsView,
+)
 from .auth_views import (
     AccountActivationView,
     CsrfTokenView,
@@ -102,6 +108,26 @@ urlpatterns = [
         "integrations/v1/orders/events/",
         MarketplaceOrderEventView.as_view(),
         name="marketplace-integration-order-event",
+    ),
+    path(
+        "logistics/freight-jobs/",
+        FreightJobBoardView.as_view(),
+        name="freight_job_board",
+    ),
+    path(
+        "logistics/freight-jobs/my-assignments/",
+        MyAssignmentsView.as_view(),
+        name="freight_my_assignments",
+    ),
+    path(
+        "logistics/freight-jobs/my-bids/",
+        MyFreightBidsView.as_view(),
+        name="freight_my_bids",
+    ),
+    path(
+        "logistics/freight-jobs/<uuid:pk>/bid/",
+        FreightBidView.as_view(),
+        name="freight_job_bid",
     ),
     path(
         "integrations/v2/events/",

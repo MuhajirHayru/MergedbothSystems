@@ -568,9 +568,19 @@ class AdministratorScope(models.Model):
         ]
         indexes = [models.Index(fields=["level", "location"])]
 
+    SCOPED_ADMIN_ROLES = (
+        "USER_ADMIN",
+        "TOP_USER_ADMIN",
+        "REGIONAL_ADMIN",
+        "ZONAL_ADMIN",
+        "WEREDA_ADMIN",
+    )
+
     def clean(self):
-        if self.user_id and self.user.role != "USER_ADMIN":
-            raise ValidationError({"user": "Only User Admin accounts can have a scope."})
+        if self.user_id and self.user.role not in self.SCOPED_ADMIN_ROLES:
+            raise ValidationError(
+                {"user": "Only administrative accounts can have a scope."}
+            )
         if (self.level == self.Level.GLOBAL) != (self.location_id is None):
             raise ValidationError(
                 {"location": "Global scope has no location; other scopes require one."}

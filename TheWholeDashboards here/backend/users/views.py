@@ -16,6 +16,7 @@ from django.utils.http import urlsafe_base64_encode
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, status, views
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -34,6 +35,7 @@ from .models import (
     default_website_content,
 )
 from .recovery import RecoveryDeliveryError, send_password_reset
+from .audit import log_action
 from .serializers import (
     LoginSerializer,
     LoginAttemptError,
@@ -182,7 +184,29 @@ class LoginView(views.APIView):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         try:
             serializer.is_valid(raise_exception=True)
+        except ValidationError as exc:
+            from django.contrib.auth import get_user_model as _gum
+
+            attempted = (request.data.get("email") or request.data.get("username") or "").strip()[:255]
+            log_action(
+                request,
+                actor=None,
+                action="login_failed",
+                target=attempted,
+                detail="Failed sign-in attempt.",
+                success=False,
+            )
+            raise
         except LoginAttemptError as exc:
+            attempted = (request.data.get("email") or request.data.get("username") or "").strip()[:255]
+            log_action(
+                request,
+                actor=None,
+                action="login_failed",
+                target=attempted,
+                detail="Failed sign-in attempt (locked out or throttled).",
+                success=False,
+            )
             if settings.PERFORMANCE_DIAGNOSTICS_ENABLED:
                 logger.info(
                     "login_performance outcome=rejected validation_ms=%.2f total_ms=%.2f",
@@ -201,6 +225,13 @@ class LoginView(views.APIView):
                 status=exc.status_code,
             )
         user = serializer.validated_data["user"]
+        log_action(
+            request,
+            actor=user,
+            action="login_success",
+            target=str(user.pk),
+            detail="User signed in.",
+        )
 
         token_started_at = perf_counter()
         access, refresh = _issue_tokens(user)
@@ -415,6 +446,14 @@ class LogoutView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        user = request.user if request.user.is_authenticated else None
+        log_action(
+            request,
+            actor=user,
+            action="logout",
+            target=str(user.pk) if user else "",
+            detail="User signed out.",
+        )
         response = Response({"success": True, "message": "Logged out."})
         response.delete_cookie(
             settings.REFRESH_COOKIE_KEY, path=settings.REFRESH_COOKIE_PATH

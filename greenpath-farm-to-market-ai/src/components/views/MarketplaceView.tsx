@@ -58,6 +58,8 @@ export const MarketplaceView: React.FC = () => {
   const [orderQuantity, setOrderQuantity] = useState<number>(10);
   const [corridor, setCorridor] = useState<string>('Meki → Mojo → Addis Ababa Central Wholesale');
   const [isOrdering, setIsOrdering] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponResult, setCouponResult] = useState<null | { payable: string; discount: string; gross: string; funded: string }>(null);
 
   // Filter products
   const filteredProducts = products.filter((p) => {
@@ -83,20 +85,26 @@ export const MarketplaceView: React.FC = () => {
     setCorridor(product.location.hubCorridor);
   };
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (!selectedProduct) return;
     setIsOrdering(true);
-    setTimeout(() => {
-      createOrder(
+    try {
+      const order = await createOrder(
         selectedProduct.id,
         orderQuantity,
         selectedProduct.pricePerUnitETB,
-        corridor
+        corridor,
+        couponCode.trim() || undefined
       );
-      setIsOrdering(false);
+      setCouponResult(null);
+      setCouponCode('');
       setSelectedProduct(null);
       setActiveView('orders');
-    }, 700);
+    } catch {
+      // notification already surfaced by createOrder
+    } finally {
+      setIsOrdering(false);
+    }
   };
 
   return (
@@ -433,7 +441,17 @@ export const MarketplaceView: React.FC = () => {
                     </strong>
                   </div>
 
-                  <button
+                            <div className="pt-2 space-y-1">
+            <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Coupon code (optional)</label>
+            <input
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              placeholder="E.g. HARVEST10"
+              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono"
+            />
+            <p className="text-[10px] text-slate-400">The discount is validated and calculated by the backend; the order snapshot records the exact amounts.</p>
+          </div>
+<button
                     onClick={handlePlaceOrder}
                     disabled={isOrdering}
                     className="px-6 py-2.5 bg-[#15803D] hover:bg-[#166534] disabled:bg-slate-300 text-white font-bold text-xs rounded-lg shadow-sm transition-colors flex items-center gap-2"
