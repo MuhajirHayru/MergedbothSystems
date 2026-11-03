@@ -162,6 +162,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: '_hdr_operations', label: 'Marketplace Operations', header: true },
           { id: 'marketplace_mgmt', label: 'Product Categories', icon: Layers },
           { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
+          { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
+          { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
           { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
           { id: 'website_content', label: 'Website Content & CMS', icon: Sliders },
           { id: 'banner_management', label: 'Banners & Announcements', icon: ImageIcon },
