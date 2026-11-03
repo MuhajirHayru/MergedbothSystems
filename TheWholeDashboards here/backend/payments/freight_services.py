@@ -107,6 +107,17 @@ def place_bid(*, driver, job_id, amount, estimated_hours, message=""):
         estimated_hours=max(1, int(estimated_hours or 24)),
         message=(message or "").strip()[:300],
     )
+    from notifications.services import notify
+    notify(
+        roles=(Role.LOGISTICS_MANAGER, Role.SUPER_ADMIN),
+        type="SYSTEM",
+        message=(
+            f"New bid: {driver.full_name} bid {amount} ETB "
+            f"for {job.order.reference} ({job.pickup_summary} → {job.destination_summary})"
+        ),
+        actor=driver,
+        target_url="/freight-bids",
+    )
     return bid
 
 

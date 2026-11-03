@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
+import { api } from '../../services/apiClient';
 import { Bell, Check, ShoppingBag, DollarSign, ShieldAlert, FileCheck2, Info, X } from 'lucide-react';
 
 interface NotificationItem {
@@ -13,7 +14,7 @@ interface NotificationItem {
 }
 
 export const NotificationsDropdown: React.FC = () => {
-  const { setActiveView } = useApp();
+  const { setActiveView, currentRole } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState<'All' | 'Orders' | 'Financial' | 'Verification'>('All');
 
@@ -67,7 +68,15 @@ export const NotificationsDropdown: React.FC = () => {
       prev.map((n) => (n.id === item.id ? { ...n, read: true } : n))
     );
     if (item.linkView) {
-      setActiveView(item.linkView);
+      // Role-aware navigation: redirect financial views to the correct
+      // dashboard based on the logged-in user's role.
+      const roleAwareView =
+        currentRole === 'logistics_manager' && item.linkView.startsWith('financial')
+          ? 'logistics_dashboard'
+          : currentRole === 'logistics_manager' && item.linkView === 'wallet'
+            ? 'logistics_dashboard'
+            : item.linkView;
+      setActiveView(roleAwareView);
       setIsOpen(false);
     }
   };
