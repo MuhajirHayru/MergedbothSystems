@@ -15,6 +15,7 @@ import { DiscountManagementView } from './components/views/DiscountManagementVie
 import { SupportManagementView } from './components/views/SupportManagementView';
 import { AccountControlPanel } from './components/views/AccountControlPanel';
 import { BannerManagementView } from './components/views/BannerManagementView';
+import { AdminOverviewPanel } from './components/views/AdminOverviewPanel';
 import { WishlistPanel, AdminProductsPanel, MessagingOversightPanel } from './components/views/SupportPanels';
 import { LogisticsDashboard } from './components/views/LogisticsDashboard';
 import { FreightBidsPanel, DriverFreightBoard, DriverAssignmentsPanel } from './components/views/FreightBiddingPanels';
@@ -258,6 +259,7 @@ const AppContent: React.FC = () => {
       case 'regional_hierarchy':
         return <TopUserAdminDashboard />;
       case 'super_admin_dashboard':
+      case 'admin_overview':
       case 'website_content':
       case 'system_security':
       case 'marketplace_mgmt':

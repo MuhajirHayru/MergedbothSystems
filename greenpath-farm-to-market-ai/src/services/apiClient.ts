@@ -290,6 +290,7 @@ export const api = {
     conversations: () => apiClient.get('/superadmin/conversations/'),
     conversationMessages: (id: string, reason: string) => apiClient.get(`/superadmin/conversations/${id}/messages/`, { params: { reason } }),
   },
+  adminOverview: () => apiClient.get('/auth/admin-overview/'),
   auditCenter: {
     summary: (days: number) => apiClient.get('/superadmin/audit/summary/', { params: { days } }),
     exportCsv: (days: number) => apiClient.get('/superadmin/audit/export/', { params: { days }, responseType: 'blob' }),
