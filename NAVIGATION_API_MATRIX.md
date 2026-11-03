@@ -277,6 +277,11 @@ Chat channels load via REST; WebSocket delivery (`/ws/notifications/`, presence)
 - **Frontend**: `DriverAvailabilityToggle` on the driver job board — pulsing green dot when online, "Go Online"/"Go Offline" button, "Not eligible" state when documents/approval are missing.
 - **Browser-verified**: toggle → Online (pulsing) → Go Offline → Go Online — state persists in DB after each toggle, visible to the logistics manager via `/admin/drivers/` (`is_available` field).
 
+## 4.23 SA sidebar logistics items fix (browser-verified)
+
+- **Bug**: `Logistics & Tracking` and `Freight Bidding` nav items were only in the logistics_manager and financial_manager sidebar cases — missing from the super_admin case. SA could not navigate to these panels from the sidebar.
+- **Fix**: Added both items to the super_admin sidebar case. Browser-verified: both appear and navigate correctly to the Logistics Dashboard and Freight Bidding panel.
+
 ## 5. Verification summary
 
 | Layer | Result |
