@@ -282,6 +282,13 @@ Chat channels load via REST; WebSocket delivery (`/ws/notifications/`, presence)
 - **Bug**: `Logistics & Tracking` and `Freight Bidding` nav items were only in the logistics_manager and financial_manager sidebar cases — missing from the super_admin case. SA could not navigate to these panels from the sidebar.
 - **Fix**: Added both items to the super_admin sidebar case. Browser-verified: both appear and navigate correctly to the Logistics Dashboard and Freight Bidding panel.
 
+## 4.24 System Admin Panel (implemented)
+
+- **Order Oversight**: platform-wide order list with search/status filters, summary cards (total/completed/pending/disputed)
+- **Wallet Oversight**: all user wallets with available/held balances, summary totals
+- **Announcement Broadcasting**: send platform-wide announcements to all active users
+- **System Health**: DB, cache, Chapa, DriverApp integration, WebSocket — status per service with error rate
+
 ## 5. Verification summary
 
 | Layer | Result |

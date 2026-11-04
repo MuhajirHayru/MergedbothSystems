@@ -84,6 +84,7 @@ const AppContent: React.FC = () => {
     '/discounts': 'discount_management',
     '/support': 'support_management',
     '/controls': 'account_control',
+    '/system-admin': 'system_admin',
     '/banners': 'banner_management',
     '/wishlist': 'wishlist',
     '/product-visibility': 'admin_products',
@@ -122,6 +123,7 @@ const AppContent: React.FC = () => {
     discount_management: '/discounts',
     support_management: '/support',
     account_control: '/controls',
+    system_admin: '/system-admin',
     banner_management: '/banners',
     wishlist: '/wishlist',
     admin_products: '/product-visibility',
@@ -252,6 +254,8 @@ const AppContent: React.FC = () => {
         return <DriverFreightBoard />;
       case 'driver_assignments':
         return <DriverAssignmentsPanel />;
+      case 'system_admin':
+        return <SystemAdminPanel />;
       case 'user_admin_dashboard':
       case 'pending_registrations':
       case 'all_users':
