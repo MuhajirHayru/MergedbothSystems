@@ -76,6 +76,8 @@ export const SystemAdminPanel: React.FC = () => {
     if (tab === 'health') void loadHealth();
   }, [tab, loadOrders, loadWallets, loadHealth]);
 
+  const [busy, setBusy] = useState(false);
+
   const sendBroadcast = async () => {
     if (!broadcastMsg.trim()) return;
     setBusy(true);
@@ -89,8 +91,6 @@ export const SystemAdminPanel: React.FC = () => {
       setBusy(false);
     }
   };
-
-  const [busy, setBusy] = useState(false);
 
   return (
     <div className="space-y-5">
@@ -237,5 +237,3 @@ export const SystemAdminPanel: React.FC = () => {
     </div>
   );
 };
-
-// Import DataTable at the end to avoid circular issues

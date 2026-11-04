@@ -15,7 +15,6 @@ import { DiscountManagementView } from './components/views/DiscountManagementVie
 import { SupportManagementView } from './components/views/SupportManagementView';
 import { AccountControlPanel } from './components/views/AccountControlPanel';
 import { BannerManagementView } from './components/views/BannerManagementView';
-import { AdminOverviewPanel } from './components/views/AdminOverviewPanel';
 import { SystemAdminPanel } from './components/views/SystemAdminPanel';
 import { WishlistPanel, AdminProductsPanel, MessagingOversightPanel } from './components/views/SupportPanels';
 import { LogisticsDashboard } from './components/views/LogisticsDashboard';
