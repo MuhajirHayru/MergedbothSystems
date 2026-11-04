@@ -27,7 +27,9 @@ async function startServer() {
         proxy: {
           '/api': backendProxy,
           '/media': backendProxy,
-          '/admin': backendProxy,
+          // NOTE: '/admin' is intentionally NOT proxied — the SPA owns that
+          // route (User Administrator Console). Django's own admin remains
+          // reachable directly on the backend port (http://127.0.0.1:8000/admin/).
           '/static': backendProxy,
         },
       },

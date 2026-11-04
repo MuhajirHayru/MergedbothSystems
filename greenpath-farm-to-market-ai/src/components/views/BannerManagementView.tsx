@@ -185,13 +185,13 @@ export const BannerManagementView: React.FC = () => {
                 <img src={b.image_url} alt={b.title} className="w-16 h-10 object-cover rounded-lg" />
               ) : (
                 <div className="w-16 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                  <ImageIcon className="w-4 h-4 text-slate-400" />
+                  <ImageIcon className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                 </div>
               )}
               <div className="flex-1 min-w-48">
                 <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{b.title}</div>
                 {b.description && <div className="text-xs text-slate-500">{b.description}</div>}
-                <div className="text-[11px] text-slate-400 mt-0.5">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   order #{b.display_order} · {fmt(b.starts_at)} → {fmt(b.ends_at)} · {b.destination_url || 'no link'}
                 </div>
               </div>

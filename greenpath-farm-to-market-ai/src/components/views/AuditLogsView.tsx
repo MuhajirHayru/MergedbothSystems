@@ -164,7 +164,7 @@ export const AuditLogsView: React.FC = () => {
       <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="relative flex-1 max-w-sm">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
               value={searchQuery}
@@ -218,16 +218,16 @@ export const AuditLogsView: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredLogs.length === 0 && (
-                <tr><td colSpan={5} className="py-8 text-center text-xs text-slate-400">No audit entries match the current filters.</td></tr>
+                <tr><td colSpan={5} className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">No audit entries match the current filters.</td></tr>
               )}
               {filteredLogs.map((log) => (
                 <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                  <td className="py-3 px-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                  <td className="py-3 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
                     {log.timestamp}
                   </td>
                   <td className="py-3 px-3 font-semibold text-slate-800 dark:text-slate-200">
                     <div>{log.actorName}</div>
-                    <div className="text-[10px] text-slate-400 font-mono capitalize">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono capitalize">
                       {log.actorRole}
                     </div>
                   </td>

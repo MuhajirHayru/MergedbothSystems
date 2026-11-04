@@ -181,7 +181,7 @@ export const AccountControlPanel: React.FC = () => {
       <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
           <div className="relative flex-1 max-w-sm">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-3 top-2.5" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -214,10 +214,10 @@ export const AccountControlPanel: React.FC = () => {
             </thead>
             <tbody>
               {loadingUsers && (
-                <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-400">Loading accounts…</td></tr>
+                <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Loading accounts…</td></tr>
               )}
               {!loadingUsers && users.length === 0 && (
-                <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-400">No accounts match this search or role filter.</td></tr>
+                <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">No accounts match this search or role filter.</td></tr>
               )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50/60 dark:hover:bg-slate-800/40">

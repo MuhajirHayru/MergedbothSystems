@@ -105,7 +105,7 @@ export const UserAdminDashboard: React.FC = () => {
           <div className="text-xl font-bold font-mono text-amber-600 mt-2">
             {pendingApps.length} Applications
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">Awaiting MoA & trade validation</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Awaiting MoA & trade validation</div>
         </div>
 
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
@@ -127,7 +127,7 @@ export const UserAdminDashboard: React.FC = () => {
           <div className="text-xl font-bold font-mono text-blue-600 mt-2">
             {allUsers.filter((u) => u.role === 'farmer').length} Verified
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">Rift Valley & Highland Growers</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Rift Valley & Highland Growers</div>
         </div>
 
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
@@ -138,7 +138,7 @@ export const UserAdminDashboard: React.FC = () => {
           <div className="text-xl font-bold font-mono text-red-600 mt-2">
             {allUsers.filter((u) => u.verificationStatus === 'suspended').length} Flagged
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">Restricted from escrow trading</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Restricted from escrow trading</div>
         </div>
       </div>
 
@@ -203,14 +203,14 @@ export const UserAdminDashboard: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                 Incoming User Registration Applications
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 New farmers, wholesalers, retailers, and drivers awaiting credential review before platform access.
               </p>
             </div>
           </div>
 
           {pendingApps.length === 0 ? (
-            <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-400 text-xs">
+            <div className="p-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400 text-xs">
               All registration applications have been reviewed and verified.
             </div>
           ) : (
@@ -233,7 +233,7 @@ export const UserAdminDashboard: React.FC = () => {
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 capitalize font-mono">
                         {app.role}
                       </span>
-                      <span className="text-xs text-slate-400 font-mono">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                         Submitted: {app.submittedAt}
                       </span>
                     </div>
@@ -249,7 +249,7 @@ export const UserAdminDashboard: React.FC = () => {
                         Entity: {app.businessName} · License: {app.licenseNumber || 'Under Review'}
                       </div>
                     )}
-                    <div className="text-[11px] text-slate-400 pt-1">
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
                       Attached Documents: {app.documents.map((d) => d.name).join(', ')}
                     </div>
                   </div>
@@ -313,7 +313,7 @@ export const UserAdminDashboard: React.FC = () => {
           {/* Filter Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="relative flex-1 max-w-sm">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
@@ -377,7 +377,7 @@ export const UserAdminDashboard: React.FC = () => {
                       <div className="font-bold text-slate-900 dark:text-slate-100">
                         {u.name}
                       </div>
-                      <div className="text-[11px] text-slate-400 truncate max-w-xs">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs">
                         {u.businessName || 'Individual Agribusiness'}
                       </div>
                     </td>
@@ -386,13 +386,13 @@ export const UserAdminDashboard: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 font-mono text-slate-600 dark:text-slate-400">
                       <div>{u.email}</div>
-                      <div className="text-[10px] text-slate-400">{u.phone}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400">{u.phone}</div>
                     </td>
                     <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
                       <div className="font-semibold text-slate-800 dark:text-slate-200">{u.region}</div>
-                      <div className="text-[10px] text-slate-400">{u.zone} · {u.wereda}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400">{u.zone} · {u.wereda}</div>
                     </td>
-                    <td className="py-3 px-2 text-slate-400 font-mono text-[11px]">
+                    <td className="py-3 px-2 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                       {u.registrationDate}
                     </td>
                     <td className="py-3 px-2">
@@ -417,7 +417,7 @@ export const UserAdminDashboard: React.FC = () => {
                 ))}
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
                       No accounts match the current search and filters.
                     </td>
                   </tr>

@@ -383,6 +383,7 @@ export const api = {
     walletActivity: (params?: any) => apiClient.get('/dashboard/wallet-activity/', { params }),
   },
   superadmin: {
+    statistics: (params?: Record<string, unknown>) => apiClient.get('/superadmin/statistics/', { params }),
     health: () => apiClient.get('/superadmin/health/'),
     data: () => apiClient.get('/superadmin/data/'),
     users: (params?: any) => apiClient.get('/superadmin/users/', { params }),

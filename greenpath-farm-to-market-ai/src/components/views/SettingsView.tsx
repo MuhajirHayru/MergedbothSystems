@@ -167,7 +167,7 @@ export const SettingsView: React.FC = () => {
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`} />
                 <span className="truncate">{item.label}</span>
               </button>
             );
@@ -265,7 +265,7 @@ export const SettingsView: React.FC = () => {
                   <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                     Disbursement & Escrow Bank Accounts
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Accounts authorized for direct payout withdrawal in Ethiopian Birr (ETB).
                   </p>
                 </div>
@@ -296,7 +296,7 @@ export const SettingsView: React.FC = () => {
                             Primary Account
                           </span>
                         )}
-                        <span className="text-[10px] font-semibold text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                           {b.accountType}
                         </span>
                       </div>
@@ -420,7 +420,7 @@ export const SettingsView: React.FC = () => {
                 <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 mb-1">
                   Security & Authentication Guard
                 </h3>
-                <p className="text-slate-400">
+                <p className="text-slate-500 dark:text-slate-400">
                   Account protected under GreenPath 3-failed-attempt lockout policy.
                 </p>
               </div>
@@ -523,14 +523,14 @@ export const SettingsView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-3">
                 Notification Channels & Alerts
               </h3>
-              <p className="text-[11px] text-slate-400">Preferences are saved on this device and applied the next time you sign in here.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Preferences are saved on this device and applied the next time you sign in here.</p>
               <div className="space-y-3">
                 <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div>
                     <div className="font-bold text-slate-800 dark:text-slate-200">
                       Escrow Order Milestone Updates
                     </div>
-                    <div className="text-slate-400 text-[11px]">
+                    <div className="text-slate-500 dark:text-slate-400 text-[11px]">
                       Alert when order status moves to Shipped, Delivered, or Payment Release
                     </div>
                   </div>
@@ -547,7 +547,7 @@ export const SettingsView: React.FC = () => {
                     <div className="font-bold text-slate-800 dark:text-slate-200">
                       Chapa Financial Payment Releases
                     </div>
-                    <div className="text-slate-400 text-[11px]">
+                    <div className="text-slate-500 dark:text-slate-400 text-[11px]">
                       Instant notifications on deposit approvals and wallet settlements
                     </div>
                   </div>
@@ -564,7 +564,7 @@ export const SettingsView: React.FC = () => {
                     <div className="font-bold text-slate-800 dark:text-slate-200">
                       Ethio Telecom SMS Dispatch Alerts
                     </div>
-                    <div className="text-slate-400 text-[11px]">
+                    <div className="text-slate-500 dark:text-slate-400 text-[11px]">
                       Receive automated SMS alerts when freight drivers dock at farm gate
                     </div>
                   </div>
@@ -606,7 +606,7 @@ export const SettingsView: React.FC = () => {
                     <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
                       {l.label}
                     </div>
-                    <div className="text-slate-400 text-[11px] mt-0.5">{l.desc}</div>
+                    <div className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">{l.desc}</div>
                   </button>
                 ))}
               </div>
@@ -619,7 +619,7 @@ export const SettingsView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-3">
                 Global Theme Preference
               </h3>
-              <p className="text-slate-400">
+              <p className="text-slate-500 dark:text-slate-400">
                 Light mode utilizes Green-700 (#15803D) sidebar; Dark mode utilizes Slate-900 (#0F172A).
               </p>
 
@@ -656,7 +656,7 @@ export const SettingsView: React.FC = () => {
                   </div>
                   <div>
                     <div className="font-bold text-sm text-slate-100">Dark Mode</div>
-                    <div className="text-slate-400 text-[11px]">
+                    <div className="text-slate-500 dark:text-slate-400 text-[11px]">
                       Slate-900 sidebar · Deep contrast nocturnal styling
                     </div>
                   </div>
@@ -691,7 +691,7 @@ export const SettingsView: React.FC = () => {
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
                   <div className="font-bold text-slate-800 dark:text-slate-200">Accreditation Status</div>
-                  <div className="text-slate-400 text-[11px]">Verified Agricultural Trade Participant</div>
+                  <div className="text-slate-500 dark:text-slate-400 text-[11px]">Verified Agricultural Trade Participant</div>
                 </div>
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950 px-2.5 py-1 rounded-full capitalize">
                   {currentUser.verificationStatus}

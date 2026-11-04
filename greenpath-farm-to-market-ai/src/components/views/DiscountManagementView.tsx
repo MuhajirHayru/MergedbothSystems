@@ -8,6 +8,7 @@
  * All data comes from the discount APIs and the immutable redemption
  * snapshots; no invented statistics.
  */
+import { useModalA11y } from '../../hooks/useModalA11y';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { DataTable } from '../common/DataTable';
@@ -125,6 +126,7 @@ export const DiscountManagementView: React.FC = () => {
 
   // Form state
   const [formOpen, setFormOpen] = useState(false);
+  const formPanelRef = useModalA11y<HTMLFormElement>(() => setFormOpen(false));
   const [editing, setEditing] = useState<DiscountCampaign | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [formError, setFormError] = useState('');
@@ -436,7 +438,7 @@ export const DiscountManagementView: React.FC = () => {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             <div className="relative flex-1 max-w-sm">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={search}
@@ -463,7 +465,7 @@ export const DiscountManagementView: React.FC = () => {
               { key: 'name', label: 'Campaign', render: (c) => (<div className="font-semibold text-slate-800 dark:text-slate-100">{c.name}</div>) },
               { key: 'discount', label: 'Discount', render: (c) => c.discount_type === 'PERCENTAGE' ? `${Number(c.discount_value)}% (max ${c.max_discount_amount} ETB)` : `${c.discount_value} ETB` },
               { key: 'funding', label: 'Funding', render: (c) => (<span className={`px-2 py-0.5 rounded-full font-semibold ${c.funding_source === 'PLATFORM' ? 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300' : 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300'}`}>{c.funding_source === 'PLATFORM' ? 'Green Path' : 'Seller'}</span>) },
-              { key: 'window', label: 'Window', render: (c) => (<div>{fmtDate(c.starts_at)}<div className="text-[11px] text-slate-400">→ {c.ends_at ? fmtDate(c.ends_at) : 'no end'}</div></div>) },
+              { key: 'window', label: 'Window', render: (c) => (<div>{fmtDate(c.starts_at)}<div className="text-[11px] text-slate-500 dark:text-slate-400">→ {c.ends_at ? fmtDate(c.ends_at) : 'no end'}</div></div>) },
               { key: 'status', label: 'Status', render: (c) => (<span className="px-2 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">{c.effective_status}</span>) },
               { key: 'used', label: 'Used', className: 'text-right', render: (c) => `${c.total_redemptions}${c.usage_limit != null ? ` / ${c.usage_limit}` : ''}` },
               { key: 'total_discount', label: 'Total discount', className: 'text-right font-mono', render: (c) => `${c.total_discount_amount} ETB` },
@@ -552,6 +554,7 @@ export const DiscountManagementView: React.FC = () => {
       {formOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setFormOpen(false)}>
           <form
+            ref={formPanelRef}
             onClick={(e) => e.stopPropagation()}
             onSubmit={submitForm}
             className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-4"
@@ -561,7 +564,7 @@ export const DiscountManagementView: React.FC = () => {
                 <Tag className="w-4 h-4 text-emerald-600" />
                 {editing ? `Edit campaign: ${editing.name}` : 'Create discount campaign'}
               </h3>
-              <button type="button" onClick={() => setFormOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+              <button type="button" onClick={() => setFormOpen(false)} className="text-slate-500 dark:text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
             </div>
 
             {formError && (

@@ -1,3 +1,4 @@
+import { useModalA11y } from '../../hooks/useModalA11y';
 import React, { useState } from 'react';
 import { UserProfile, DocumentRecord } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -26,6 +27,7 @@ interface UserDetailReviewModalProps {
 }
 
 export const UserDetailReviewModal: React.FC<UserDetailReviewModalProps> = ({ user, onClose }) => {
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const { updateUserVerification, addAuditLog, orders, products, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<'personal' | 'address' | 'documents' | 'verification' | 'activity' | 'actions'>('personal');
   const [inspectingDoc, setInspectingDoc] = useState<DocumentRecord | null>(null);
@@ -56,8 +58,8 @@ export const UserDetailReviewModal: React.FC<UserDetailReviewModalProps> = ({ us
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/80 backdrop-blur-xs animate-in fade-in duration-150">
-        <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[92vh] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden text-slate-900 dark:text-slate-100">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/80 backdrop-blur-xs animate-in fade-in duration-150" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
+        <div ref={panelRef} tabIndex={-1} className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[92vh] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden text-slate-900 dark:text-slate-100">
           {/* Header */}
           <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50 dark:bg-slate-900/80">
             <div className="flex items-center gap-3">

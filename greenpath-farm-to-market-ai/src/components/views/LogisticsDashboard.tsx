@@ -135,7 +135,7 @@ export const LogisticsDashboard: React.FC = () => {
                   <div className="text-[11px] text-slate-500">
                     {r.buyer} → {r.seller} · {r.cargo_weight_kg} kg · {r.packaging}
                   </div>
-                  <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                     <MapPin className="w-3 h-3" /> {r.pickup} → {r.destination}
                   </div>
                 </div>
@@ -166,10 +166,10 @@ export const LogisticsDashboard: React.FC = () => {
                       <span className={`w-2 h-2 rounded-full ${i === timeline.timeline.length - 1 ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
                       <span className="font-mono text-[11px] text-slate-500">{new Date(e.at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                       <span className="font-semibold text-slate-700 dark:text-slate-200">{String(e.event_type).replace(/_/g, ' ')}</span>
-                      {e.status && <span className="text-slate-400">→ {String(e.status).replace(/_/g, ' ')}</span>}
+                      {e.status && <span className="text-slate-500 dark:text-slate-400">→ {String(e.status).replace(/_/g, ' ')}</span>}
                     </div>
                   ))}
-                  {timeline.timeline.length === 0 && <div className="text-xs text-slate-400">No feed events recorded yet.</div>}
+                  {timeline.timeline.length === 0 && <div className="text-xs text-slate-500 dark:text-slate-400">No feed events recorded yet.</div>}
                 </div>
               )}
             </div>

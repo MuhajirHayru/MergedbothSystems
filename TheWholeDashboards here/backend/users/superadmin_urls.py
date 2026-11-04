@@ -10,6 +10,7 @@ from .audit_views import (
     AuditSummaryView,
     UserActivityView,
 )
+from .superadmin_statistics import SuperAdminStatisticsView
 from .superadmin_views import (
     AdminAccountViewSet,
     AnnouncementBroadcastView,
@@ -28,6 +29,7 @@ router.register("accounts", AdminAccountViewSet, basename="superadmin-accounts")
 router.register("audit", AuditLogListView, basename="superadmin-audit")
 
 urlpatterns = [
+    path("statistics/", SuperAdminStatisticsView.as_view(), name="superadmin-statistics"),
     # Part 22 — must precede the accounts router so 'bulk-status' is not read as a pk.
     path(
         "accounts/bulk-status/",

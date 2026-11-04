@@ -188,19 +188,19 @@ export const SupportManagementView: React.FC<{ staffView?: boolean }> = ({ staff
 
       {staffView && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          <select aria-label="Filter tickets by status" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5">
             <option value="">All statuses</option>
             {['OPEN', 'IN_PROGRESS', 'ANSWERED', 'CLOSED'].map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
-          <select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+          <select aria-label="Filter tickets by category" value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}
             className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5">
             <option value="">All categories</option>
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-            <input type="checkbox" checked={filters.unanswered} onChange={(e) => setFilters({ ...filters, unanswered: e.target.checked })} />
-            Unanswered only
+            <input type="checkbox" id="unanswered-only" checked={filters.unanswered} onChange={(e) => setFilters({ ...filters, unanswered: e.target.checked })} />
+            <label htmlFor="unanswered-only" className="text-xs text-slate-600 dark:text-slate-300">Unanswered only</label>
           </label>
         </div>
       )}

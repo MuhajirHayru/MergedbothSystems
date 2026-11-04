@@ -125,6 +125,7 @@ interface AppContextType {
   // Regional & Audit
   regionalMetrics: RegionalFinancialMetric[];
   regionalMetricsStatus: 'loading' | 'ready' | 'error';
+  loadRegionalMetrics: (rangeFrom?: string | null, rangeTo?: string | null) => Promise<void>;
   adminDataStatus: 'loading' | 'ready' | 'error';
   auditLogs: AuditLog[];
   addAuditLog: (entry: Omit<AuditLog, 'id' | 'timestamp'>) => void;
@@ -375,23 +376,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (audit.status === 'fulfilled') setAuditLogs(LIST(audit.value).map(mapAuditLog));
   }, []);
 
-  const loadRegionalMetrics = useCallback(async () => {
+  const loadRegionalMetrics = useCallback(async (rangeFrom?: string | null, rangeTo?: string | null) => {
     setRegionalMetricsStatus('loading');
     try {
-      const res = await api.admin.users({ page_size: 200 });
-      const users = LIST(res).map(mapAdminUser);
-      let payments: any[] = [];
-      try {
-        const payRes = await api.payments.list({ page_size: 100 });
-        payments = LIST(payRes);
-      } catch {
-        /* non-finance roles cannot list payments */
-      }
-      setRegionalMetrics(deriveRegionalMetrics(users, payments));
+      // Preferred: the dedicated aggregate endpoint (single query set, ~70ms,
+      // period + region filtering, wallet and payout figures included).
+      const params: Record<string, unknown> = {};
+      if (rangeFrom) params.from = rangeFrom;
+      if (rangeTo) params.to = rangeTo;
+      const res = await api.superadmin.statistics(params);
+      const rows = res.data?.regional;
+      if (!Array.isArray(rows)) throw new Error('unexpected statistics payload');
+      setRegionalMetrics(rows as RegionalFinancialMetric[]);
       setRegionalMetricsStatus('ready');
     } catch {
-      setRegionalMetrics([]);
-      setRegionalMetricsStatus('error');
+      // Fallback: derive client-side for roles where the endpoint is unavailable.
+      try {
+        const res = await api.admin.users({ page_size: 200 });
+        const users = LIST(res).map(mapAdminUser);
+        let payments: any[] = [];
+        try {
+          const payRes = await api.payments.list({ page_size: 100 });
+          payments = LIST(payRes);
+        } catch {
+          /* non-finance roles cannot list payments */
+        }
+        setRegionalMetrics(deriveRegionalMetrics(users, payments));
+        setRegionalMetricsStatus('ready');
+      } catch {
+        setRegionalMetrics([]);
+        setRegionalMetricsStatus('error');
+      }
     }
   }, []);
 
@@ -1279,6 +1294,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateUserVerification: updateUserVerification as any,
         regionalMetrics,
         regionalMetricsStatus,
+        loadRegionalMetrics,
         adminDataStatus,
         auditLogs,
         addAuditLog,

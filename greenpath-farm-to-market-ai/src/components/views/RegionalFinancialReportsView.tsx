@@ -36,7 +36,15 @@ import {
 } from 'lucide-react';
 
 export const RegionalFinancialReportsView: React.FC = () => {
-  const { regionalMetrics, regionalMetricsStatus, setNotification } = useApp();
+  const { regionalMetrics, regionalMetricsStatus, loadRegionalMetrics, setNotification } = useApp();
+  const [period, setPeriod] = useState<'30d' | '90d' | '365d' | 'all'>('all');
+
+  const changePeriod = (next: '30d' | '90d' | '365d' | 'all') => {
+    setPeriod(next);
+    if (next === 'all') { void loadRegionalMetrics(null); return; }
+    const days = next === '30d' ? 30 : next === '90d' ? 90 : 365;
+    void loadRegionalMetrics(new Date(Date.now() - days * 86400000).toISOString());
+  };
 
   const [scopeTab, setScopeTab] = useState<'financial' | 'analytics'>('financial');
   const [selectedRegion, setSelectedRegion] = useState<RegionalFinancialMetric | null>(null);
@@ -143,7 +151,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
         </div>
       )}
       {scopeTab === 'financial' && regionalMetricsStatus === 'ready' && regionalMetrics.length === 0 && (
-        <div className="p-10 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-400">
+        <div className="p-10 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">
           No regional financial records yet — metrics appear once users and verified payments exist.
         </div>
       )}
@@ -195,6 +203,24 @@ export const RegionalFinancialReportsView: React.FC = () => {
           </p>
         </div>
 
+        {/* Reporting period — backed by /superadmin/statistics/?from= */}
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold" role="group" aria-label="Reporting period">
+          {([['30d', '30 days'], ['90d', '90 days'], ['365d', '12 months'], ['all', 'All time']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => changePeriod(id)}
+              aria-pressed={period === id}
+              className={`px-2.5 py-1 rounded-md transition-colors ${
+                period === id
+                  ? 'bg-white dark:bg-slate-900 text-[#15803D] dark:text-emerald-400 shadow-xs'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Action Controls & Export */}
         <div className="flex items-center gap-2">
           <button
@@ -225,7 +251,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-2">
             {(selectedRegion ? selectedRegion.totalTransactionValueETB : totalVolumeETB).toLocaleString()} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             {selectedRegion ? 'Regional records on file' : `Across ${regionalMetrics.length} administrative regions · current platform records`}
           </div>
         </div>
@@ -238,7 +264,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-2">
             {(selectedRegion ? selectedRegion.verifiedPaymentValueETB : totalVerifiedETB).toLocaleString()} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             Chapa Escrow released to seller wallets
           </div>
         </div>
@@ -251,7 +277,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
           <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-2">
             {(selectedRegion ? selectedRegion.pendingPaymentValueETB : totalPendingETB).toLocaleString()} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             Locked in transit & quality inspection
           </div>
         </div>
@@ -264,7 +290,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-2">
             {(selectedRegion ? selectedRegion.payoutValueETB : totalPayoutETB).toLocaleString()} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             Transferred to CBE, Awash & Dashen
           </div>
         </div>
@@ -280,11 +306,11 @@ export const RegionalFinancialReportsView: React.FC = () => {
                 <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                   Regional Financial Distribution (Million ETB)
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Volume comparison across key agricultural trading corridors
                 </p>
               </div>
-              <div className="text-[11px] font-mono text-slate-400 font-semibold">
+              <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 font-semibold">
                 Currency: Millions ETB
               </div>
             </div>
@@ -318,7 +344,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                 Market Volume Share by Region
               </h3>
-              <p className="text-xs text-slate-400 mb-4">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                 Proportion of gross marketplace settlements
               </p>
               <div className="h-56 w-full">
@@ -375,7 +401,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                 Zonal Sub-Ledger for {selectedRegion.region}
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Click a zone to drill into district (Wereda) transactions
               </p>
             </div>
@@ -399,12 +425,12 @@ export const RegionalFinancialReportsView: React.FC = () => {
                   <span className="font-bold text-xs text-slate-900 dark:text-slate-100 group-hover:text-[#15803D]">
                     {zone.zoneName}
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                  <ChevronRight className="w-4 h-4 text-slate-500 dark:text-slate-400 group-hover:translate-x-1 transition-transform" />
                 </div>
                 <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-2">
                   {zone.totalValueETB.toLocaleString()} ETB
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center justify-between">
                   <span>{zone.totalTransactions.toLocaleString()} txs</span>
                   <span>{zone.weredas.length} Weredas</span>
                 </div>
@@ -422,7 +448,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                 Wereda District Granular Breakdown: {selectedZone.zoneName}
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Micro-level financial transactions recorded at local municipal agro-sheds
               </p>
             </div>
@@ -447,7 +473,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
                 <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
                   {wereda.totalValueETB.toLocaleString()} ETB
                 </div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {wereda.totalTransactions.toLocaleString()} completed orders
                 </div>
               </div>
@@ -463,7 +489,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
             <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
               Regional Financial Ledger & Participant Roster
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Click any region to inspect internal zonal districts. All currency values in Ethiopian Birr (ETB).
             </p>
           </div>

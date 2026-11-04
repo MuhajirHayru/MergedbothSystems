@@ -89,7 +89,7 @@ export const WishlistPanel: React.FC<{ products?: { id: string; title: string }[
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
           <Heart className="w-4 h-4 text-rose-500" /> My Wishlist
-          <span className="text-slate-400 font-normal">· saved products with live availability</span>
+          <span className="text-slate-500 dark:text-slate-400 font-normal">· saved products with live availability</span>
         </div>
         <button onClick={() => void load()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -137,7 +137,7 @@ export const WishlistPanel: React.FC<{ products?: { id: string; title: string }[
                   {item.note && <> · “{item.note}”</>}
                 </div>
               </div>
-              <span className="text-[11px] text-slate-400">saved {fmtDate(item.added_at)}</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">saved {fmtDate(item.added_at)}</span>
               <button onClick={() => void remove(item.product.id)} className="px-3 py-1.5 rounded-lg border text-xs font-semibold border-slate-300 dark:border-slate-600">
                 Remove
               </button>
@@ -185,9 +185,9 @@ export const AdminProductsPanel: React.FC = () => {
           <Package className="w-4 h-4 text-emerald-600" /> Product listings {data?.scope_limited ? 'within your assigned scope' : '(platform-wide)'}
         </div>
         <div className="flex gap-2">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or seller…"
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or seller…" aria-label="Search listings by title or seller"
             className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800" />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter listings by status"
             className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5">
             <option value="">All statuses</option>
             {['ACTIVE', 'SOLD', 'PENDING', 'INACTIVE'].map((s) => <option key={s} value={s}>{s}</option>)}
@@ -204,21 +204,21 @@ export const AdminProductsPanel: React.FC = () => {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-800">
-                <th className="py-2.5 px-3">Title</th><th className="py-2.5 px-3">Seller</th>
-                <th className="py-2.5 px-3">Category</th><th className="py-2.5 px-3 text-right">Price</th>
-                <th className="py-2.5 px-3 text-right">Qty</th><th className="py-2.5 px-3">Status</th><th className="py-2.5 px-3">Listed</th>
+                <th scope="col" className="py-2.5 px-3">Title</th><th scope="col" className="py-2.5 px-3">Seller</th>
+                <th scope="col" className="py-2.5 px-3">Category</th><th scope="col" className="py-2.5 px-3 text-right">Price</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Qty</th><th scope="col" className="py-2.5 px-3">Status</th><th scope="col" className="py-2.5 px-3">Listed</th>
               </tr>
             </thead>
             <tbody>
               {data.products.map((p: any) => (
                 <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800/60">
                   <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-100">{p.title}</td>
-                  <td className="py-2 px-3">{p.seller} <span className="text-slate-400">({p.seller_role.replace(/_/g, ' ')})</span></td>
+                  <td className="py-2 px-3">{p.seller} <span className="text-slate-500 dark:text-slate-400">({p.seller_role.replace(/_/g, ' ')})</span></td>
                   <td className="py-2 px-3">{p.category}</td>
                   <td className="py-2 px-3 text-right font-mono">{p.price_per_unit}</td>
                   <td className="py-2 px-3 text-right font-mono">{p.quantity}</td>
                   <td className="py-2 px-3">{p.status}</td>
-                  <td className="py-2 px-3 text-slate-400">{fmtDate(p.listed_at)}</td>
+                  <td className="py-2 px-3 text-slate-500 dark:text-slate-400">{fmtDate(p.listed_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -274,7 +274,7 @@ export const MessagingOversightPanel: React.FC = () => {
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
           <Eye className="w-4 h-4 text-emerald-600" /> Conversation oversight
-          <span className="text-slate-400 font-normal">· metadata is open; message content requires a recorded reason</span>
+          <span className="text-slate-500 dark:text-slate-400 font-normal">· metadata is open; message content requires a recorded reason</span>
         </div>
         <button onClick={() => void load()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -317,11 +317,11 @@ export const MessagingOversightPanel: React.FC = () => {
                   {openMessages.messages.map((m) => (
                     <div key={m.id} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-xs">
                       <span className="font-semibold text-slate-700 dark:text-slate-200">{m.sender}</span>
-                      <span className="text-slate-400 ml-2">{fmtDate(m.created_at)}</span>
+                      <span className="text-slate-500 dark:text-slate-400 ml-2">{fmtDate(m.created_at)}</span>
                       <div className="text-slate-600 dark:text-slate-300">{m.body}</div>
                     </div>
                   ))}
-                  {openMessages.messages.length === 0 && <div className="text-xs text-slate-400">No messages.</div>}
+                  {openMessages.messages.length === 0 && <div className="text-xs text-slate-500 dark:text-slate-400">No messages.</div>}
                 </div>
               )}
             </div>

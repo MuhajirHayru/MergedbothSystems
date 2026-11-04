@@ -209,7 +209,7 @@ export const RegionalAnalyticsPanel: React.FC = () => {
 
             <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
               <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Users by region and role (top 10 regions — click a bar to drill down)</div>
-              <div className="h-72">
+              <div className="h-72" role="img" aria-label="Stacked bar chart: registered users per region split by role for the top 10 regions">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={regionChart} onClick={(state: any) => {
                     const idx = state?.activeTooltipIndex as number | undefined;
@@ -233,7 +233,7 @@ export const RegionalAnalyticsPanel: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                 <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Monthly registrations</div>
-                <div className="h-56">
+                <div className="h-56" role="img" aria-label="Line chart: new user registrations per month">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />

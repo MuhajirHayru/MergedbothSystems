@@ -17,7 +17,7 @@ const SECTION_TITLE = 'text-sm font-bold text-slate-900 dark:text-slate-100';
 const SECTION_HINT = 'text-xs text-slate-500 dark:text-slate-400 mt-0.5';
 const LABEL = 'block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5';
 const INPUT =
-  'w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors';
+  'w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors';
 const BTN_PRIMARY =
   'inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900';
 const BTN_DANGER =
@@ -377,7 +377,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
               </div>
 
               <fieldset className="space-y-3">
-                <legend className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Branding wordmarks</legend>
+                <legend className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Branding wordmarks</legend>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label htmlFor="cms-title-en" className={LABEL}>English wordmark</label>
@@ -395,7 +395,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
               </fieldset>
 
               <fieldset className="space-y-3">
-                <legend className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Public landing copy</legend>
+                <legend className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Public landing copy</legend>
                 <div>
                   <label htmlFor="cms-hero-headline" className={LABEL}>Hero headline</label>
                   <input id="cms-hero-headline" type="text" value={heroHeadline} onChange={(e) => setHeroHeadline(e.target.value)} className={INPUT} />
@@ -411,7 +411,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
               </fieldset>
 
               <div className="flex items-center justify-end gap-3 pt-1">
-                {savingContent && <span className="text-xs text-slate-400">Publishing…</span>}
+                {savingContent && <span className="text-xs text-slate-500 dark:text-slate-400">Publishing…</span>}
                 <button type="submit" disabled={savingContent} className={BTN_PRIMARY}>
                   <Save className="w-4 h-4" /> {savingContent ? 'Publishing…' : 'Save & Publish Live Changes'}
                 </button>
@@ -436,22 +436,22 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                   <div>
                     <label htmlFor="sec-attempts" className={LABEL}>Max failed login attempts</label>
                     <input id="sec-attempts" type="number" min={1} max={10} value={maxFailedAttempts} onChange={(e) => setMaxFailedAttempts(Number(e.target.value))} className={`${INPUT} font-mono font-bold`} />
-                    <span className="text-[10px] text-slate-400 mt-1 block">Recommended: 3 attempts</span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Recommended: 3 attempts</span>
                   </div>
                   <div>
                     <label htmlFor="sec-lockout" className={LABEL}>Lockout duration (minutes)</label>
                     <input id="sec-lockout" type="number" min={5} max={1440} value={lockoutDurationMinutes} onChange={(e) => setLockoutDurationMinutes(Number(e.target.value))} className={`${INPUT} font-mono font-bold`} />
-                    <span className="text-[10px] text-slate-400 mt-1 block">Cooldown window before retry</span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Cooldown window before retry</span>
                   </div>
                   <div>
                     <label htmlFor="sec-session" className={LABEL}>Session inactivity timeout (minutes)</label>
                     <input id="sec-session" type="number" min={15} max={480} value={sessionTimeoutMinutes} onChange={(e) => setSessionTimeoutMinutes(Number(e.target.value))} className={`${INPUT} font-mono font-bold`} />
-                    <span className="text-[10px] text-slate-400 mt-1 block">Auto sign-out when idle</span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Auto sign-out when idle</span>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-3 pt-1">
-                  {savingSecurity && <span className="text-xs text-slate-400">Updating…</span>}
+                  {savingSecurity && <span className="text-xs text-slate-500 dark:text-slate-400">Updating…</span>}
                   <button type="submit" disabled={savingSecurity} className={BTN_PRIMARY}>
                     <Save className="w-4 h-4" /> {savingSecurity ? 'Updating…' : 'Update Security Parameters'}
                   </button>
@@ -481,7 +481,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                   <h3 className={SECTION_TITLE}>Marketplace Crop Categories Taxonomy</h3>
                   <p className={SECTION_HINT}>Categories available to farmers when listing produce, and to admins for reporting.</p>
                 </div>
-                <span className="text-xs font-bold text-slate-400">{categories.length} categories</span>
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{categories.length} categories</span>
               </div>
 
               <form onSubmit={handleAddCategory} className="flex gap-2 max-w-md">
@@ -506,7 +506,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                   ))}
                 </div>
               ) : categories.length === 0 ? (
-                <div className="py-10 text-center text-xs text-slate-400">
+                <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
                   No categories yet — add the first one above.
                 </div>
               ) : (
@@ -532,7 +532,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                           </button>
                           <button
                             onClick={() => setConfirmDeleteId(null)}
-                            className="p-1 rounded text-slate-400 hover:text-slate-600"
+                            className="p-1 rounded text-slate-500 dark:text-slate-400 hover:text-slate-600"
                             aria-label={`Cancel deleting ${cat.name_en}`}
                           >
                             <XCircle className="w-3.5 h-3.5" />
@@ -541,7 +541,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                       ) : (
                         <button
                           onClick={() => handleRemoveCategory(cat)}
-                          className="text-slate-400 hover:text-rose-600 transition-colors shrink-0"
+                          className="text-slate-500 dark:text-slate-400 hover:text-rose-600 transition-colors shrink-0"
                           aria-label={`Delete ${cat.name_en}`}
                           title="Delete category"
                         >
@@ -657,7 +657,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                   </div>
 
                   <div className="md:col-span-3 pt-1">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Scope (leave blank or * for all)</div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Scope (leave blank or * for all)</div>
                     <div className="grid md:grid-cols-3 gap-4">
                       <div>
                         <label htmlFor="dp-region" className={LABEL}>Region</label>
@@ -665,7 +665,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                           <option value="">All regions (*)</option>
                           {regionOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
-                        {regionOptions.length === 0 && <span className="text-[10px] text-slate-400 mt-1 block">Region list unavailable — leave blank for all regions.</span>}
+                        {regionOptions.length === 0 && <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Region list unavailable — leave blank for all regions.</span>}
                       </div>
                       <div>
                         <label htmlFor="dp-zone" className={LABEL}>Zone (UUID, optional)</label>
@@ -710,12 +710,12 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
               <section className={`${CARD} p-6`}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className={SECTION_TITLE}>Delivery pricing rules &amp; precedence</h3>
-                  <span className="text-xs font-bold text-slate-400">{deliveryPricingRows.length} rules</span>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{deliveryPricingRows.length} rules</span>
                 </div>
                 {financialLoading ? (
                   <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />)}</div>
                 ) : deliveryPricingRows.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-6 text-center">No delivery pricing rules yet — create the first one above.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 py-6 text-center">No delivery pricing rules yet — create the first one above.</p>
                 ) : (
                   <div className="space-y-2">
                     {deliveryPricingRows.map((rule) => (
@@ -723,7 +723,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{rule.name}</span>
                           <Pill value={rule.active ? 'ACTIVE' : 'INACTIVE'} />
-                          <span className="text-xs text-slate-400">Model {rule.pricing_model}</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Model {rule.pricing_model}</span>
                           <span className="text-xs font-mono text-slate-600 dark:text-slate-300">{rule.fee_type === 'PERCENTAGE' ? `${rule.fee_value}%` : `${Number(rule.fee_value).toLocaleString()} ETB`}</span>
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 space-y-0.5">
@@ -750,12 +750,12 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
               <section className={`${CARD} p-6`}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className={SECTION_TITLE}>Configuration history</h3>
-                  <span className="text-xs font-bold text-slate-400">{financialRows.length} records</span>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{financialRows.length} records</span>
                 </div>
                 {financialLoading ? (
                   <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-14 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />)}</div>
                 ) : financialRows.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-6 text-center">No configuration records — drafts you save will appear here for approval.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 py-6 text-center">No configuration records — drafts you save will appear here for approval.</p>
                 ) : (
                   <div className="space-y-3">
                     {financialRows.map((row) => (
@@ -763,7 +763,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-sm text-slate-900 dark:text-slate-100">{row.name}</span>
-                            <span className="text-xs text-slate-400">· {row.kind} v{row.version}</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">· {row.kind} v{row.version}</span>
                             <Pill value={row.status} />
                           </div>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -826,7 +826,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                           <span className="font-semibold text-xs text-slate-800 dark:text-slate-100">{s.name}</span>
                           <Pill value={s.status} />
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-1.5">{s.detail}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">{s.detail}</div>
                       </div>
                     ))}
                   </div>

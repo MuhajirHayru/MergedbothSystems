@@ -35,10 +35,10 @@ function Kpi({ label, value, sub, icon: Icon, color }: { label: string; value: s
     <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">{label}</span>
-        <Icon className={`w-4 h-4 ${color ?? 'text-slate-400'}`} />
+        <Icon className={`w-4 h-4 ${color ?? 'text-slate-500 dark:text-slate-400'}`} />
       </div>
       <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">{value}</div>
-      {sub && <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>}
+      {sub && <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -121,7 +121,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
           >
             <qa.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-1.5" />
             <div className="text-xs font-bold text-slate-800 dark:text-slate-100">{qa.label}</div>
-            <div className="text-[10px] text-slate-400 mt-0.5">{qa.sub}</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{qa.sub}</div>
             <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-emerald-500 transition-colors mt-1" />
           </button>
         ))}
@@ -147,7 +147,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Users by Role</div>
-          <div className="h-56">
+          <div className="h-56" role="img" aria-label="Horizontal bar chart: number of registered users for each role">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={roleData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -163,7 +163,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
         </Card>
         <Card>
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Order Status</div>
-          <div className="h-56 relative">
+          <div className="h-56 relative" role="img" aria-label="Donut chart: share of orders that are completed, pending, or disputed">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={orderStatus} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={50} outerRadius={75} paddingAngle={4}>
@@ -187,7 +187,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
           <div className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
             {money(data.financials.revenue)} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">Commission + delivery service fees</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Commission + delivery service fees</div>
         </Card>
         <Card className="!border-violet-200 dark:!border-violet-800">
           <div className="flex items-center gap-2 mb-2">
@@ -195,7 +195,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
             <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Active Campaigns</span>
           </div>
           <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">{data.discounts.active_campaigns}</div>
-          <div className="text-[11px] text-slate-400 mt-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             {data.discounts.total_redemptions} redemptions · {money(data.discounts.total_discount_amount)} ETB given
           </div>
         </Card>
@@ -207,7 +207,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
           <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">
             {money(data.wallet.available)} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">{money(data.wallet.held)} ETB held in escrow</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{money(data.wallet.held)} ETB held in escrow</div>
         </Card>
       </div>
 
@@ -261,9 +261,9 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
                 {agriData.scarce_products.map((p: any, i: number) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
                     <span className="font-semibold text-slate-700 dark:text-slate-200">{p.title}</span>
-                    <span className="text-slate-400">({p.category})</span>
+                    <span className="text-slate-500 dark:text-slate-400">({p.category})</span>
                     <span className="font-mono text-amber-600">{Number(p.quantity)} {p.unit}</span>
-                    <span className="text-slate-400">{p.region} · {p.farmer}</span>
+                    <span className="text-slate-500 dark:text-slate-400">{p.region} · {p.farmer}</span>
                   </div>
                 ))}
               </div>
@@ -280,9 +280,9 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
         <div className="space-y-1 max-h-56 overflow-y-auto">
           {data.recent_audit.map((a, i) => (
             <div key={i} className="flex items-start gap-2 text-xs border-b border-slate-50 dark:border-slate-800/50 pb-1">
-              <span className="font-mono text-[10px] text-slate-400 whitespace-nowrap w-14 shrink-0">{relTime(a.created_at)}</span>
+              <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap w-14 shrink-0">{relTime(a.created_at)}</span>
               <span className="font-semibold text-slate-700 dark:text-slate-200 min-w-32">{a.action.replace(/_/g, ' ')}</span>
-              <span className="text-slate-400 truncate">{a.detail}</span>
+              <span className="text-slate-500 dark:text-slate-400 truncate">{a.detail}</span>
             </div>
           ))}
         </div>

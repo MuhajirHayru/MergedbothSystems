@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './context/AppContext';
 import { MessagingProvider } from './context/MessagingContext';
@@ -7,33 +7,52 @@ import { Sidebar } from './components/layout/Sidebar';
 import { LandingPage } from './components/views/LandingPage';
 import { LoginPage, RegisterPage, ForgotPasswordPage } from './components/views/AuthPages';
 import { MarketplaceView } from './components/views/MarketplaceView';
-import { FarmerDashboard } from './components/views/FarmerDashboard';
-import { WholesalerDashboard, RetailerDashboard } from './components/views/WholesalerDashboard';
-import { DriverDashboard } from './components/views/DriverDashboard';
-import { FinancialManagerDashboard } from './components/views/FinancialManagerDashboard';
-import { DiscountManagementView } from './components/views/DiscountManagementView';
-import { SupportManagementView } from './components/views/SupportManagementView';
-import { AccountControlPanel } from './components/views/AccountControlPanel';
-import { BannerManagementView } from './components/views/BannerManagementView';
-import { SystemAdminPanel } from './components/views/SystemAdminPanel';
-import { WishlistPanel, AdminProductsPanel, MessagingOversightPanel } from './components/views/SupportPanels';
-import { LogisticsDashboard } from './components/views/LogisticsDashboard';
-import { FreightBidsPanel, DriverFreightBoard, DriverAssignmentsPanel } from './components/views/FreightBiddingPanels';
-import { UserAdminDashboard } from './components/views/UserAdminDashboard';
-import { TopUserAdminDashboard } from './components/views/TopUserAdminDashboard';
-import { SuperAdminDashboard } from './components/views/SuperAdminDashboard';
-import { RegionalFinancialReportsView } from './components/views/RegionalFinancialReportsView';
-import { OrdersView } from './components/views/OrdersView';
-import { OrderDetailView } from './components/orders/OrderDetailView';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { MessagingView } from './components/views/MessagingView';
-import { StaffManagementView } from './components/views/StaffManagementView';
-import { NotificationsView } from './components/views/NotificationsView';
-import { WalletView } from './components/views/WalletView';
-import { SettingsView } from './components/views/SettingsView';
-import { AuditLogsView } from './components/views/AuditLogsView';
 import { AiAssistantModal } from './components/common/AiAssistantModal';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
+
+// Route-level code splitting: dashboards and admin panels are the heaviest
+// modules (charts, tables). They load on demand; landing/auth/marketplace stay
+// eager so the first public paint is unaffected. Views are state-driven, so
+// lazy chunks resolve transparently on navigation, deep links included.
+const FarmerDashboard = lazy(() => import('./components/views/FarmerDashboard').then(m => ({ default: m.FarmerDashboard })));
+const WholesalerDashboard = lazy(() => import('./components/views/WholesalerDashboard').then(m => ({ default: m.WholesalerDashboard })));
+const RetailerDashboard = lazy(() => import('./components/views/WholesalerDashboard').then(m => ({ default: m.RetailerDashboard })));
+const DriverDashboard = lazy(() => import('./components/views/DriverDashboard').then(m => ({ default: m.DriverDashboard })));
+const FinancialManagerDashboard = lazy(() => import('./components/views/FinancialManagerDashboard').then(m => ({ default: m.FinancialManagerDashboard })));
+const DiscountManagementView = lazy(() => import('./components/views/DiscountManagementView').then(m => ({ default: m.DiscountManagementView })));
+const SupportManagementView = lazy(() => import('./components/views/SupportManagementView').then(m => ({ default: m.SupportManagementView })));
+const AccountControlPanel = lazy(() => import('./components/views/AccountControlPanel').then(m => ({ default: m.AccountControlPanel })));
+const BannerManagementView = lazy(() => import('./components/views/BannerManagementView').then(m => ({ default: m.BannerManagementView })));
+const SystemAdminPanel = lazy(() => import('./components/views/SystemAdminPanel').then(m => ({ default: m.SystemAdminPanel })));
+const WishlistPanel = lazy(() => import('./components/views/SupportPanels').then(m => ({ default: m.WishlistPanel })));
+const AdminProductsPanel = lazy(() => import('./components/views/SupportPanels').then(m => ({ default: m.AdminProductsPanel })));
+const MessagingOversightPanel = lazy(() => import('./components/views/SupportPanels').then(m => ({ default: m.MessagingOversightPanel })));
+const LogisticsDashboard = lazy(() => import('./components/views/LogisticsDashboard').then(m => ({ default: m.LogisticsDashboard })));
+const FreightBidsPanel = lazy(() => import('./components/views/FreightBiddingPanels').then(m => ({ default: m.FreightBidsPanel })));
+const DriverFreightBoard = lazy(() => import('./components/views/FreightBiddingPanels').then(m => ({ default: m.DriverFreightBoard })));
+const DriverAssignmentsPanel = lazy(() => import('./components/views/FreightBiddingPanels').then(m => ({ default: m.DriverAssignmentsPanel })));
+const UserAdminDashboard = lazy(() => import('./components/views/UserAdminDashboard').then(m => ({ default: m.UserAdminDashboard })));
+const TopUserAdminDashboard = lazy(() => import('./components/views/TopUserAdminDashboard').then(m => ({ default: m.TopUserAdminDashboard })));
+const SuperAdminDashboard = lazy(() => import('./components/views/SuperAdminDashboard').then(m => ({ default: m.SuperAdminDashboard })));
+const RegionalFinancialReportsView = lazy(() => import('./components/views/RegionalFinancialReportsView').then(m => ({ default: m.RegionalFinancialReportsView })));
+const OrdersView = lazy(() => import('./components/views/OrdersView').then(m => ({ default: m.OrdersView })));
+const OrderDetailView = lazy(() => import('./components/orders/OrderDetailView').then(m => ({ default: m.OrderDetailView })));
+const MessagingView = lazy(() => import('./components/views/MessagingView').then(m => ({ default: m.MessagingView })));
+const StaffManagementView = lazy(() => import('./components/views/StaffManagementView').then(m => ({ default: m.StaffManagementView })));
+const NotificationsView = lazy(() => import('./components/views/NotificationsView').then(m => ({ default: m.NotificationsView })));
+const WalletView = lazy(() => import('./components/views/WalletView').then(m => ({ default: m.WalletView })));
+const SettingsView = lazy(() => import('./components/views/SettingsView').then(m => ({ default: m.SettingsView })));
+const AuditLogsView = lazy(() => import('./components/views/AuditLogsView').then(m => ({ default: m.AuditLogsView })));
+
+const ViewFallback: React.FC = () => (
+  <div className="p-8 max-w-7xl mx-auto" role="status" aria-live="polite">
+    <div className="h-8 w-72 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse mb-4" />
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />)}
+    </div>
+  </div>
+);
 
 const PUBLIC_VIEWS_FOR_GUARD = ['landing', 'login', 'register', 'forgot_password', 'marketplace'];
 
@@ -348,7 +367,9 @@ const AppContent: React.FC = () => {
         {/* Main Content Area */}
         <main className="flex-1 overflow-x-hidden min-w-0">
           <ErrorBoundary key={location.pathname} label="This screen could not be displayed">
-            {renderCurrentView()}
+            <Suspense fallback={<ViewFallback />}>
+              {renderCurrentView()}
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>

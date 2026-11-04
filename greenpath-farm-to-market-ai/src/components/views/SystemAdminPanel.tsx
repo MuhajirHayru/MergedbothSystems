@@ -136,7 +136,7 @@ export const SystemAdminPanel: React.FC = () => {
           )}
           <div className="flex gap-2">
             <div className="relative flex-1 max-w-sm">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-3 top-2.5" />
               <input value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} placeholder="Search order, product, buyer…"
                 className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800" />
             </div>
@@ -238,7 +238,7 @@ export const SystemAdminPanel: React.FC = () => {
                   <span className="font-semibold text-slate-800 dark:text-slate-100 text-xs">{s.name}</span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${s.status === 'operational' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-800'}`}>{s.status}</span>
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">{s.detail}</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{s.detail}</div>
               </div>
             ))}
           </div>

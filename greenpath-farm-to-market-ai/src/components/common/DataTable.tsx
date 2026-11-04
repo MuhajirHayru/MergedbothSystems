@@ -209,7 +209,7 @@ export function DataTable<T>({
                   {f.id}: {f.reason}
                 </div>
               ))}
-              <button onClick={() => setResult(null)} className="text-[11px] underline text-slate-400">dismiss</button>
+              <button onClick={() => setResult(null)} className="text-[11px] underline text-slate-500 dark:text-slate-400">dismiss</button>
             </div>
           )}
         </div>
@@ -228,7 +228,7 @@ export function DataTable<T>({
             <thead>
               <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
                 {bulkActions.length > 0 && (
-                  <th className={`${pad} w-8`}>
+                  <th scope="col" className={`${pad} w-8`}>
                     <input
                       type="checkbox"
                       checked={allPageSelected}
@@ -240,7 +240,7 @@ export function DataTable<T>({
                     />
                   </th>
                 )}
-                <th className={`${pad}`}>ID</th>
+                <th scope="col" className={`${pad}`}>ID</th>
                 {columns.map((c) => (
                   <th key={c.key} className={`${pad} ${c.className ?? ''}`}>{c.label}</th>
                 ))}

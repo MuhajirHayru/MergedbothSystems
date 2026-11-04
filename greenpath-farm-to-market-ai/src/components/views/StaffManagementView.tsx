@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/apiClient';
 import { formatApiError } from '../../lib/apiErrors';
@@ -348,7 +349,7 @@ export const StaffManagementView: React.FC = () => {
         <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2.5">
           <div className="flex flex-col lg:flex-row lg:items-center gap-2">
             <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 absolute left-2.5 top-2.5" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -419,12 +420,12 @@ export const StaffManagementView: React.FC = () => {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
-                <th className="px-3 py-2 font-semibold">Staff member</th>
-                <th className="px-3 py-2 font-semibold">Role</th>
-                <th className="px-3 py-2 font-semibold">Geographic scope</th>
-                <th className="px-3 py-2 font-semibold">Status</th>
-                <th className="px-3 py-2 font-semibold">Created</th>
-                <th className="px-3 py-2 font-semibold text-right">Actions</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Staff member</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Role</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Geographic scope</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Status</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Created</th>
+                <th scope="col" className="px-3 py-2 font-semibold text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -626,6 +627,7 @@ const CreateStaffModal: React.FC<{
   onCreated: () => void;
   onNotify: (message: string | null) => void;
 }> = ({ options, onClose, onCreated, onNotify }) => {
+  const panelRef = useModalA11y<HTMLFormElement>(onClose);
   const scoped = Boolean(options.scope_location_id);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -681,8 +683,9 @@ const CreateStaffModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
       <form
+        ref={panelRef}
         onSubmit={submit}
         className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl my-4"
       >
@@ -693,7 +696,7 @@ const CreateStaffModal: React.FC<{
               Roles and geographic scopes are limited to what your account may assign.
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 text-slate-400 hover:text-slate-700">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -841,6 +844,7 @@ const StaffDetailModal: React.FC<{
   busyId,
   statusAction,
 }) => {
+  const detailRef = useModalA11y<HTMLDivElement>(onClose);
   const [fullName, setFullName] = useState(account.full_name);
   const [phone, setPhone] = useState(account.phone || '');
   const [locationText, setLocationText] = useState(account.location || '');
@@ -882,8 +886,8 @@ const StaffDetailModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto">
-      <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl my-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-6 overflow-y-auto" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
+      <div ref={detailRef} tabIndex={-1} className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl my-4">
         <div className="flex items-start justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-full bg-[#15803D] text-white text-[11px] font-bold flex items-center justify-center">
@@ -906,7 +910,7 @@ const StaffDetailModal: React.FC<{
             >
               {mode === 'edit' ? <Eye className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
             </button>
-            <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 text-slate-400 hover:text-slate-700">
+            <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -938,7 +942,7 @@ const StaffDetailModal: React.FC<{
                 {prettyStatus(account.status)}
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500">
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 dark:text-slate-500">
               Passwords and authentication tokens are never exposed by the API.
             </p>
           </div>
@@ -1051,9 +1055,9 @@ const Detail: React.FC<{ icon: React.ElementType; label: string; value: string }
   value,
 }) => (
   <div className="flex items-start gap-2">
-    <Icon className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+    <Icon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 mt-0.5 shrink-0" />
     <div className="min-w-0">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</div>
       <div className="text-[11px] font-medium text-slate-800 dark:text-slate-200 break-words">{value}</div>
     </div>
   </div>
