@@ -171,6 +171,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'system_security', label: 'Security & Lockout Rules', icon: Shield },
           { id: 'staff_management', label: 'Staff Management', icon: UserCog },
           { id: 'account_control', label: 'Account & System Controls', icon: ShieldAlert },
+          { id: 'system_admin', label: 'System Admin Panel', icon: Settings },
           { id: 'messaging_oversight', label: 'Messaging Oversight', icon: Eye },
           { id: 'audit_logs', label: 'Master Audit Logs', icon: FileText },
           { id: '_hdr_workspace', label: 'Workspace', header: true },

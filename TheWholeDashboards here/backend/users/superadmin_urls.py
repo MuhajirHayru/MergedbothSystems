@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .account_control_views import BulkAccountStatusView
 from .banner_views import BannerAdminView, BannerDetailView, BannerReorderView
 from .oversight_views import ConversationMessagesView, ConversationOversightView
-from .enterprise_views import SystemHealthDetailedView
+from .enterprise_views import AllOrdersOversightView, AllWalletsOversightView, AnnouncementBroadcastView, SystemHealthDetailedView
 from .audit_views import (
     AuditExportView,
     AuditSummaryView,
@@ -59,6 +59,9 @@ urlpatterns = [
     # FR-SA-05
     path("health/", SystemHealthView.as_view(), name="superadmin_health"),
     path("health-detailed/", SystemHealthDetailedView.as_view(), name="superadmin_health_detailed"),
+    path("orders-oversight/", AllOrdersOversightView.as_view(), name="sa_orders_oversight"),
+    path("wallets-oversight/", AllWalletsOversightView.as_view(), name="sa_wallets_oversight"),
+    path("broadcast/", AnnouncementBroadcastView.as_view(), name="sa_broadcast"),
     # Part 20 — master audit center
     path("conversations/", ConversationOversightView.as_view(), name="superadmin_conversations"),
     path(

@@ -291,6 +291,10 @@ export const api = {
     conversationMessages: (id: string, reason: string) => apiClient.get(`/superadmin/conversations/${id}/messages/`, { params: { reason } }),
   },
   adminOverview: () => apiClient.get('/auth/admin-overview/'),
+  ordersOversight: (params?: Record<string, unknown>) => apiClient.get('/superadmin/orders-oversight/', { params }),
+  walletsOversight: () => apiClient.get('/superadmin/wallets-oversight/'),
+  broadcast: (message: string) => apiClient.post('/superadmin/broadcast/', { message }),
+  healthDetailed: () => apiClient.get('/superadmin/health-detailed/'),
   auditCenter: {
     summary: (days: number) => apiClient.get('/superadmin/audit/summary/', { params: { days } }),
     exportCsv: (days: number) => apiClient.get('/superadmin/audit/export/', { params: { days }, responseType: 'blob' }),

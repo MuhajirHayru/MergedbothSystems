@@ -278,3 +278,106 @@ class SystemHealthDetailedView(APIView):
             "error_rate_last_hour": recent_errors,
             "checked_at": timezone.now().isoformat(),
         })
+
+
+class AllOrdersOversightView(APIView):
+    """GET /api/v1/superadmin/orders-oversight/ — all orders platform-wide."""
+
+    def get_permissions(self):
+        return [IsSuperAdmin()]
+
+    def get(self, request):
+        from payments.models import Order, OrderStatus
+        orders = Order.objects.select_related(
+            "product", "wholesaler", "farmer", "retailer"
+        ).order_by("-created_at")
+        params = request.query_params
+        if params.get("status"):
+            orders = orders.filter(status=params["status"])
+        search = (params.get("search") or "").strip()
+        if search:
+            orders = orders.filter(
+                Q(reference__icontains=search)
+                | Q(product__title__icontains=search)
+                | Q(wholesaler__full_name__icontains=search)
+                | Q(farmer__full_name__icontains=search)
+            )
+        rows = []
+        for o in orders[:200]:
+            buyer = o.buyer
+            seller = o.seller
+            rows.append({
+                "id": str(o.pk),
+                "reference": o.reference,
+                "product": o.product.title,
+                "quantity": str(o.quantity),
+                "total": str(o.total_amount),
+                "discount": str(o.discount_amount),
+                "payable": str(o.payable_amount),
+                "status": o.status,
+                "payment_status": o.payment_status,
+                "buyer": buyer.full_name if buyer else None,
+                "seller": seller.full_name if seller else None,
+                "created_at": o.created_at.isoformat(),
+            })
+        return Response({
+            "success": True,
+            "summary": {
+                "total": orders.count(),
+                "completed": orders.filter(status="Completed").count(),
+                "pending": orders.filter(status__in=["Pending seller approval", "Accepted", "Processing", "Confirmed"]).count(),
+                "disputed": orders.filter(status="Disputed").count(),
+            },
+            "orders": rows,
+        })
+
+
+class AllWalletsOversightView(APIView):
+    """GET /api/v1/superadmin/wallets-oversight/ — all user wallets."""
+
+    def get_permissions(self):
+        return [IsSuperAdmin()]
+
+    def get(self, request):
+        from payments.models import Wallet as W
+        wallets = W.objects.select_related("user").order_by("-available_balance")
+        total_available = wallets.aggregate(s=Sum("available_balance"))["s"] or 0
+        total_held = wallets.aggregate(s=Sum("held_balance"))["s"] or 0
+        return Response({
+            "success": True,
+            "summary": {
+                "total_wallets": wallets.count(),
+                "total_available": str(total_available),
+                "total_held": str(total_held),
+            },
+            "wallets": [
+                {
+                    "id": str(w.pk),
+                    "user": w.user.full_name,
+                    "email": w.user.email,
+                    "role": w.user.role,
+                    "available": str(w.available_balance),
+                    "held": str(w.held_balance),
+                    "currency": w.currency,
+                }
+                for w in wallets[:200]
+            ],
+        })
+
+
+class AnnouncementBroadcastView(APIView):
+    """POST /api/v1/superadmin/broadcast/ — send announcement to all users."""
+
+    def get_permissions(self):
+        return [IsSuperAdmin()]
+
+    def post(self, request):
+        message = (request.data.get("message") or "").strip()
+        if not message:
+            return Response({"success": False, "error": {"message": "Announcement text is required."}}, status=400)
+        from notifications.services import notify
+        from users.models import AccountStatus
+        active_users = User.objects.filter(is_active=True, status=AccountStatus.APPROVED).values_list("pk", flat=True)
+        notify(user_ids=list(active_users), type="SYSTEM", message=f"📢 Platform Announcement: {message}", actor=request.user)
+        AuditLog.objects.create(actor=request.user, action="announcement_broadcast", detail=message[:200])
+        return Response({"success": True, "sent_to": User.objects.filter(is_active=True, status=AccountStatus.APPROVED).count()})
