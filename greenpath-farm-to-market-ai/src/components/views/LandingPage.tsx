@@ -128,13 +128,13 @@ export const LandingPage: React.FC = () => {
               </div>
               <div>
                 <div className="font-bold text-base text-slate-900 dark:text-slate-100 font-mono">
-                  4,800+
+                  {publicStats ? publicStats.stats.total_users : '—'}
                 </div>
                 <div className="text-slate-500 text-[11px]">Accredited Producers</div>
               </div>
               <div>
                 <div className="font-bold text-base text-slate-900 dark:text-slate-100 font-mono">
-                  11 Regions
+                  {publicStats ? publicStats.stats.total_regions : '—'}
                 </div>
                 <div className="text-slate-500 text-[11px]">National Coverage</div>
               </div>
