@@ -294,7 +294,11 @@ class AdminAccountViewSet(_AuditMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = serializer.save()
-        self._audit("admin_account_created", user.email)
+        self._audit(
+            "admin_account_created",
+            user.email,
+            extra=f"{user.email} created as {str(user.role).replace('_', ' ').title()}.",
+        )
         from notifications.services import notify
 
         notify(
@@ -897,6 +901,7 @@ class PlatformSettingsView(APIView):
         "discount_campaigns_disabled",
         "max_failed_login_attempts",
         "lockout_duration_minutes",
+        "session_timeout_minutes",
         "text_messaging_enabled",
         "voice_messaging_enabled",
     )
@@ -916,6 +921,7 @@ class PlatformSettingsView(APIView):
             "maintenance_mode",
             "max_failed_login_attempts",
             "lockout_duration_minutes",
+            "session_timeout_minutes",
             "text_messaging_enabled",
             "voice_messaging_enabled",
         }
@@ -981,6 +987,7 @@ class PlatformSettingsView(APIView):
             "maintenance_mode": config.maintenance_mode,
             "max_failed_login_attempts": config.max_failed_login_attempts,
             "lockout_duration_minutes": config.lockout_duration_minutes,
+            "session_timeout_minutes": config.session_timeout_minutes,
             "text_messaging_enabled": config.text_messaging_enabled,
             "voice_messaging_enabled": config.voice_messaging_enabled,
             "updated_at": config.updated_at.isoformat() if config.updated_at else None,

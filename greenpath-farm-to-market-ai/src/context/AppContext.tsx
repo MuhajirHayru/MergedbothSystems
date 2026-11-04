@@ -124,6 +124,8 @@ interface AppContextType {
 
   // Regional & Audit
   regionalMetrics: RegionalFinancialMetric[];
+  regionalMetricsStatus: 'loading' | 'ready' | 'error';
+  adminDataStatus: 'loading' | 'ready' | 'error';
   auditLogs: AuditLog[];
   addAuditLog: (entry: Omit<AuditLog, 'id' | 'timestamp'>) => void;
 
@@ -169,7 +171,14 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentRole, setCurrentRoleState] = useState<UserRole>('public');
-  const [language, setLanguage] = useState<Language>('en');
+  const [language, setLanguageState] = useState<Language>(() => {
+    const stored = localStorage.getItem('gp_pref_language');
+    return stored === 'am' || stored === 'om' ? (stored as Language) : 'en';
+  });
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    localStorage.setItem('gp_pref_language', lang);
+  };
   const [activeView, setActiveView] = useState<string>('landing');
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -178,6 +187,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [applications, setApplications] = useState<RegistrationApplication[]>([]);
   const [platformConfig, setPlatformConfig] = useState<PlatformConfig>(DEFAULT_PLATFORM_CONFIG);
   const [regionalMetrics, setRegionalMetrics] = useState<RegionalFinancialMetric[]>([]);
+  const [adminDataStatus, setAdminDataStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [regionalMetricsStatus, setRegionalMetricsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [waybills, setWaybills] = useState<DigitalWaybill[]>([]);
@@ -247,6 +258,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // ignore
     }
     localStorage.removeItem('greenpath_auth_token');
+    localStorage.removeItem('greenpath_refresh_token');
     localStorage.removeItem('greenpath_registration_token');
     // Forget every trace of the previous account so the next sign-in starts clean.
     sessionUserIdRef.current = null;
@@ -341,6 +353,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const loadAdminData = useCallback(async () => {
+    setAdminDataStatus('loading');
     const results = await Promise.allSettled([
       api.admin.pendingUsers({ page_size: 100 }),
       api.admin.registrations({ page_size: 100 }),
@@ -348,6 +361,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       api.superadmin.audit({ page_size: 100 }),
     ]);
     const [pending, registrations, users, audit] = results;
+    if (results.every((r) => r.status === 'rejected')) setAdminDataStatus('error');
+    else setAdminDataStatus('ready');
     const apps: RegistrationApplication[] = [];
     if (pending.status === 'fulfilled') apps.push(...LIST(pending.value).map(mapPendingUser));
     if (registrations.status === 'fulfilled')
@@ -361,6 +376,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const loadRegionalMetrics = useCallback(async () => {
+    setRegionalMetricsStatus('loading');
     try {
       const res = await api.admin.users({ page_size: 200 });
       const users = LIST(res).map(mapAdminUser);
@@ -372,8 +388,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         /* non-finance roles cannot list payments */
       }
       setRegionalMetrics(deriveRegionalMetrics(users, payments));
+      setRegionalMetricsStatus('ready');
     } catch {
       setRegionalMetrics([]);
+      setRegionalMetricsStatus('error');
     }
   }, []);
 
@@ -424,6 +442,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             ...prev.security,
             maxFailedAttempts: num(settings.max_failed_login_attempts, prev.security.maxFailedAttempts),
             lockoutDurationMinutes: num(settings.lockout_duration_minutes, prev.security.lockoutDurationMinutes),
+            sessionTimeoutMinutes: num(settings.session_timeout_minutes, prev.security.sessionTimeoutMinutes),
           },
           websiteContent: {
             ...prev.websiteContent,
@@ -1159,7 +1178,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updatePlatformConfig = async (newConfig: Partial<PlatformConfig>) => {
-    setPlatformConfig((prev) => ({ ...prev, ...newConfig }));
+    let previous: PlatformConfig | null = null;
+    setPlatformConfig((prev) => {
+      previous = prev;
+      return { ...prev, ...newConfig };
+    });
     try {
       if (
         currentRole === 'super_admin' &&
@@ -1181,12 +1204,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         await api.superadmin.updateSettings({
           max_failed_login_attempts: newConfig.security.maxFailedAttempts,
           lockout_duration_minutes: newConfig.security.lockoutDurationMinutes,
+          session_timeout_minutes: newConfig.security.sessionTimeoutMinutes,
           reason: 'Security policy updated from the Super Admin dashboard.',
         });
       }
       showNotification('Platform governance configuration saved.');
     } catch (e: any) {
-      showNotification(e?.response?.data?.error || 'Saved locally; server rejected platform config update.');
+      // Roll back the optimistic update so the UI never shows unsaved values as saved.
+      if (previous) setPlatformConfig(previous);
+      showNotification(e?.response?.data?.error || 'Server rejected the platform config update — changes were rolled back.');
+      throw e;
     }
   };
 
@@ -1251,6 +1278,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         allUsers: allUsersList,
         updateUserVerification: updateUserVerification as any,
         regionalMetrics,
+        regionalMetricsStatus,
+        adminDataStatus,
         auditLogs,
         addAuditLog,
         platformConfig,

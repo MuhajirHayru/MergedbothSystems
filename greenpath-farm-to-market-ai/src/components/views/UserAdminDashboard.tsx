@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { apiClient } from '../../services/apiClient';
 import { UserProfile, RegistrationApplication } from '../../types';
 import { UserDetailReviewModal } from './UserDetailReviewModal';
 import {
@@ -24,6 +25,7 @@ export const UserAdminDashboard: React.FC = () => {
     applications,
     updateApplicationStatus,
     allUsers,
+    adminDataStatus,
     updateUserVerification,
     setNotification,
     setActiveView,
@@ -34,6 +36,19 @@ export const UserAdminDashboard: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [selectedReviewUser, setSelectedReviewUser] = useState<UserProfile | null>(null);
+  const [regionOptions, setRegionOptions] = useState<string[]>([]);
+
+  // Region filter options come from the administrative reference data, with a
+  // static fallback when the endpoint is unavailable for this role.
+  useEffect(() => {
+    apiClient.get('/superadmin/locations/')
+      .then((res) => {
+        const rows = Array.isArray(res.data) ? res.data : res.data?.results || [];
+        const names = [...new Set<string>(rows.filter((l: any) => l.level === 'REGION').map((l: any) => String(l.name)))];
+        if (names.length) setRegionOptions(names);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const pendingApps = applications.filter((a) => a.status === 'pending');
 
@@ -167,7 +182,21 @@ export const UserAdminDashboard: React.FC = () => {
       </div>
 
       {/* TAB 1: Pending Registrations Queue */}
-      {activeTab === 'pending' && (
+      {adminDataStatus === 'error' && (
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">
+          User records could not be loaded from the server. Refresh the page to retry.
+        </div>
+      )}
+
+      {adminDataStatus === 'loading' && (
+        <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-10 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'pending' && adminDataStatus !== 'loading' && (
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -243,7 +272,7 @@ export const UserAdminDashboard: React.FC = () => {
                           wereda: app.wereda,
                           registeredAddress: `${app.wereda}, ${app.zone}, ${app.region}`,
                           verificationStatus: 'pending',
-                          registrationDate: '2026-10-25',
+                          registrationDate: app.submittedAt || '—',
                           businessName: app.businessName,
                           licenseNumber: app.licenseNumber,
                           documents: app.documents,
@@ -313,13 +342,12 @@ export const UserAdminDashboard: React.FC = () => {
                 className="text-xs p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
               >
                 <option value="all">All Regions</option>
-                <option value="Oromia">Oromia</option>
-                <option value="Addis Ababa">Addis Ababa</option>
-                <option value="Amhara">Amhara</option>
-                <option value="Sidama">Sidama</option>
-                <option value="Central Ethiopia">Central Ethiopia</option>
-                <option value="Tigray">Tigray</option>
-                <option value="Somali">Somali</option>
+                {(regionOptions.length
+                  ? regionOptions
+                  : ['Oromia', 'Addis Ababa', 'Amhara', 'Sidama', 'Central Ethiopia', 'Tigray', 'Somali']
+                ).map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -387,6 +415,13 @@ export const UserAdminDashboard: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                      No accounts match the current search and filters.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

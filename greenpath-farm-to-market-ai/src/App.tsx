@@ -140,9 +140,10 @@ const AppContent: React.FC = () => {
     top_user_dashboard: '/top-user-admin',
     regional_hierarchy: '/top-user-admin',
     super_admin_dashboard: '/super-admin',
-    website_content: '/super-admin',
-    system_security: '/super-admin',
-    marketplace_mgmt: '/super-admin',
+    sa_categories: '/super-admin',
+    sa_content: '/super-admin',
+    sa_security: '/super-admin',
+    sa_finance: '/super-admin',
     reports_regional: '/reports/regional',
     orders: '/orders',
     order_history: '/orders',
@@ -158,12 +159,17 @@ const AppContent: React.FC = () => {
   // render that order rather than falling back to a blank screen.
   const orderDetailMatch = location.pathname.match(/^\/orders\/([^/]+)\/?$/);
 
+  // All Super Admin dashboard tab views share the /super-admin path; a tab
+  // view must not be clobbered back to the overview by the URL sync below.
+  const SA_DASHBOARD_VIEWS = ['super_admin_dashboard', 'sa_categories', 'sa_content', 'sa_security', 'sa_finance'];
+
   // Sync route change with activeView
   useEffect(() => {
     const matchedView = orderDetailMatch
       ? 'orders'
       : pathToViewMap[location.pathname];
     if (matchedView && matchedView !== activeView) {
+      if (matchedView === 'super_admin_dashboard' && SA_DASHBOARD_VIEWS.includes(activeView)) return;
       setActiveView(matchedView);
     }
   }, [location.pathname]);
@@ -267,7 +273,15 @@ const AppContent: React.FC = () => {
       case 'website_content':
       case 'system_security':
       case 'marketplace_mgmt':
-        return <SuperAdminDashboard />;
+        return <SuperAdminDashboard initialTab="overview" />;
+      case 'sa_categories':
+        return <SuperAdminDashboard initialTab="categories" />;
+      case 'sa_content':
+        return <SuperAdminDashboard initialTab="content" />;
+      case 'sa_security':
+        return <SuperAdminDashboard initialTab="security" />;
+      case 'sa_finance':
+        return <SuperAdminDashboard initialTab="finance" />;
       case 'reports_regional':
         return <RegionalFinancialReportsView />;
       case 'orders':

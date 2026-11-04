@@ -33,6 +33,7 @@ export const SystemAdminPanel: React.FC = () => {
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastResult, setBroadcastResult] = useState('');
   const [health, setHealth] = useState<any>(null);
+  const [healthError, setHealthError] = useState('');
 
   const loadOrders = useCallback(async () => {
     setError(''); setLoading(true);
@@ -64,10 +65,13 @@ export const SystemAdminPanel: React.FC = () => {
   }, []);
 
   const loadHealth = useCallback(async () => {
+    setHealthError('');
     try {
       const res = await api.healthDetailed();
       setHealth(res.data);
-    } catch { /* health is non-critical */ }
+    } catch (err) {
+      setHealthError(formatApiError(err, 'System health could not be loaded.'));
+    }
   }, []);
 
   useEffect(() => {
@@ -216,6 +220,12 @@ export const SystemAdminPanel: React.FC = () => {
       )}
 
       {/* Health Tab */}
+      {tab === 'health' && healthError && (
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{healthError}</div>
+      )}
+      {tab === 'health' && !health && !healthError && (
+        <div className="h-20 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />
+      )}
       {tab === 'health' && health && (
         <div className="space-y-3">
           <div className={`p-4 rounded-2xl border text-xs font-bold ${health.status === 'operational' ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400' : 'border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400'}`}>

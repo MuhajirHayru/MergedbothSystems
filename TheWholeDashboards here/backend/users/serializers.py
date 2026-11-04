@@ -810,6 +810,9 @@ class PlatformSettingsUpdateSerializer(serializers.Serializer):
     lockout_duration_minutes = serializers.IntegerField(
         required=False, min_value=1, max_value=10080
     )
+    session_timeout_minutes = serializers.IntegerField(
+        required=False, min_value=5, max_value=10080
+    )
     text_messaging_enabled = serializers.BooleanField(required=False)
     voice_messaging_enabled = serializers.BooleanField(required=False)
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)

@@ -217,6 +217,9 @@ export const AuditLogsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {filteredLogs.length === 0 && (
+                <tr><td colSpan={5} className="py-8 text-center text-xs text-slate-400">No audit entries match the current filters.</td></tr>
+              )}
               {filteredLogs.map((log) => (
                 <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                   <td className="py-3 px-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">

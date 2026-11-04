@@ -28,6 +28,7 @@ interface UserRow {
 
 export const AccountControlPanel: React.FC = () => {
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
@@ -39,6 +40,7 @@ export const AccountControlPanel: React.FC = () => {
 
   const loadUsers = useCallback(async () => {
     setError('');
+    setLoadingUsers(true);
     try {
       const params: Record<string, unknown> = { page_size: 200 };
       if (search) params.search = search;
@@ -56,6 +58,8 @@ export const AccountControlPanel: React.FC = () => {
       );
     } catch (err) {
       setError(formatApiError(err, 'User list could not be loaded.'));
+    } finally {
+      setLoadingUsers(false);
     }
   }, [search, roleFilter]);
 
@@ -91,8 +95,12 @@ export const AccountControlPanel: React.FC = () => {
           user_ids: selected, action, reason: reason.trim(),
         })
       ).data;
+      const pastTense: Record<string, string> = {
+        suspend: 'suspended', reinstate: 'reinstated',
+        deactivate: 'deactivated', activate: 'activated',
+      };
       setNotice(
-        `${res.processed.length} account(s) ${action}d` +
+        `${res.processed.length} account(s) ${pastTense[action] ?? `${action}d`}` +
         (res.skipped.length ? `; ${res.skipped.length} skipped (${res.skipped[0].reason})` : '') +
         '. Every change is recorded in the audit trail.',
       );
@@ -205,6 +213,12 @@ export const AccountControlPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody>
+              {loadingUsers && (
+                <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-400">Loading accounts…</td></tr>
+              )}
+              {!loadingUsers && users.length === 0 && (
+                <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-400">No accounts match this search or role filter.</td></tr>
+              )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                   <td className="py-1.5 px-3">

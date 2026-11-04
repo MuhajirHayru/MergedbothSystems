@@ -76,6 +76,7 @@ export const LoginPage: React.FC = () => {
     try {
       // Never let a previous session's tokens ride along with a new sign-in.
       localStorage.removeItem('greenpath_auth_token');
+      localStorage.removeItem('greenpath_refresh_token');
       localStorage.removeItem('greenpath_registration_token');
       const res = await api.auth.login({ email: identifier, password });
       const data = res.data;
@@ -83,6 +84,7 @@ export const LoginPage: React.FC = () => {
         throw new Error(data?.error || 'Login failed');
       }
       localStorage.setItem('greenpath_auth_token', data.access);
+      if (data.refresh) localStorage.setItem('greenpath_refresh_token', data.refresh);
       resetLoginAttempts();
       markAuthenticated(true);
       syncAuthUser(data.user);

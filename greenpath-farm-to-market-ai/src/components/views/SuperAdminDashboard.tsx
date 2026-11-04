@@ -25,6 +25,8 @@ const BTN_DANGER =
 
 type TabId = 'overview' | 'content' | 'security' | 'categories' | 'finance' | 'health';
 
+export type { TabId };
+
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'content', label: 'Website Content', icon: Globe },
@@ -51,10 +53,16 @@ const Pill = ({ value }: { value: string }) => (
   </span>
 );
 
-export const SuperAdminDashboard: React.FC = () => {
+export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialTab }) => {
   const { platformConfig, updatePlatformConfig, setNotification, setActiveView } = useApp();
 
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab ?? 'overview');
+
+  // Sidebar entries deep-link into a specific tab; keep state in sync when the
+  // same mounted component receives a different initialTab.
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
   const [refreshKey, setRefreshKey] = useState(0);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 

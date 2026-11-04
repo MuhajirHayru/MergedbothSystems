@@ -22,14 +22,21 @@ export const logisticsClient = axios.create({
   withCredentials: true,
 });
 
+// The refresh call must go out WITHOUT the (possibly expired) Authorization
+// header: DRF's JWT authentication rejects an invalid Bearer token before the
+// AllowAny refresh view runs, which would turn every silent refresh into a 401.
+const NO_AUTH_PATHS = ['/auth/token/refresh/', '/auth/login/'];
+
 // Attach JWT Bearer token if present
 const attachToken = (client: typeof apiClient) =>
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
+      const url = String(config.url || '');
+      if (NO_AUTH_PATHS.some((path) => url.includes(path))) return config;
       // Registration dossier endpoints accept the purpose-limited completion
       // token issued by /auth/register/ before the account can log in.
       const registrationToken = localStorage.getItem('greenpath_registration_token');
-      const isRegistrationCall = String(config.url || '').startsWith('/registration/');
+      const isRegistrationCall = url.startsWith('/registration/');
       const token = isRegistrationCall
         ? registrationToken || localStorage.getItem('greenpath_auth_token')
         : localStorage.getItem('greenpath_auth_token');
@@ -67,6 +74,7 @@ const handleRefresh = (client: typeof apiClient) =>
       if (!refreshable) {
         if (error.response?.status === 401 && NON_REFRESHABLE.some((path) => url.includes(path))) {
           localStorage.removeItem('greenpath_auth_token');
+          localStorage.removeItem('greenpath_refresh_token');
         }
         return Promise.reject(error);
       }
@@ -84,11 +92,13 @@ const handleRefresh = (client: typeof apiClient) =>
         const newAccess = res?.data?.access;
         if (newAccess) {
           localStorage.setItem('greenpath_auth_token', newAccess);
+          if (res?.data?.refresh) localStorage.setItem('greenpath_refresh_token', res.data.refresh);
           if (original.headers) original.headers.Authorization = `Bearer ${newAccess}`;
         }
         return client(original);
       } catch (e) {
         localStorage.removeItem('greenpath_auth_token');
+        localStorage.removeItem('greenpath_refresh_token');
         return Promise.reject(error);
       }
     }
@@ -347,7 +357,7 @@ export const api = {
     changePassword: (data: any) => apiClient.post('/auth/password/change/', data),
     forgotPassword: (email: string) => apiClient.post('/auth/password-reset/request/', { email }),
     resetPassword: (data: any) => apiClient.post('/auth/password-reset/confirm/', data),
-    refresh: () => apiClient.post('/auth/token/refresh/', {}),
+    refresh: () => apiClient.post('/auth/token/refresh/', { refresh: localStorage.getItem('greenpath_refresh_token') }),
     logout: () => apiClient.post('/auth/logout/', {}),
     driverToken: () => apiClient.post('/auth/driver-token/', {}),
   },

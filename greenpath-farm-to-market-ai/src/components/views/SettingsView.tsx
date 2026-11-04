@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/apiClient';
 import { useTheme } from '../../context/ThemeContext';
@@ -67,10 +67,20 @@ export const SettingsView: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // Notification toggles
-  const [notifOrders, setNotifOrders] = useState(true);
-  const [notifPayments, setNotifPayments] = useState(true);
-  const [notifMessages, setNotifMessages] = useState(true);
-  const [notifSms, setNotifSms] = useState(true);
+  const [notifOrders, setNotifOrders] = useState(() => localStorage.getItem('gp_pref_notif_orders') !== '0');
+  const [notifPayments, setNotifPayments] = useState(() => localStorage.getItem('gp_pref_notif_payments') !== '0');
+  const [notifMessages, setNotifMessages] = useState(() => localStorage.getItem('gp_pref_notif_messages') !== '0');
+  const [notifSms, setNotifSms] = useState(() => localStorage.getItem('gp_pref_notif_sms') !== '0');
+
+  // Notification preferences persist on this device so they survive reloads.
+  useEffect(() => { localStorage.setItem('gp_pref_notif_orders', notifOrders ? '1' : '0'); }, [notifOrders]);
+  useEffect(() => { localStorage.setItem('gp_pref_notif_payments', notifPayments ? '1' : '0'); }, [notifPayments]);
+  useEffect(() => { localStorage.setItem('gp_pref_notif_messages', notifMessages ? '1' : '0'); }, [notifMessages]);
+  useEffect(() => { localStorage.setItem('gp_pref_notif_sms', notifSms ? '1' : '0'); }, [notifSms]);
+
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [pwSaved, setPwSaved] = useState(false);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -421,27 +431,54 @@ export const SettingsView: React.FC = () => {
                   <span>Current Active Session</span>
                 </div>
                 <div className="text-slate-500">
-                  IP: 196.188.24.12 (Ethio Telecom Gateway, Addis Ababa) · Browser: Verified Modern Session
+                  This account is protected by the platform lockout policy ({platformConfig.security.maxFailedAttempts} failed attempts → {platformConfig.security.lockoutDurationMinutes} minute lockout) and an idle session timeout of {platformConfig.security.sessionTimeoutMinutes} minutes.
                 </div>
               </div>
 
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
-                  setNotification('Password updated successfully.');
-                  setCurrentPassword('');
-                  setNewPassword('');
-                  setConfirmPassword('');
+                  setPwError(''); setPwSaved(false);
+                  if (newPassword.length < 8) { setPwError('New password must be at least 8 characters.'); return; }
+                  if (confirmPassword !== newPassword) { setPwError('New password and confirmation do not match.'); return; }
+                  setPwBusy(true);
+                  try {
+                    await api.auth.changePassword({
+                      current_password: currentPassword,
+                      new_password: newPassword,
+                      confirm_password: confirmPassword,
+                    });
+                    setPwSaved(true);
+                    setNotification('Password updated successfully.');
+                    setCurrentPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                  } catch (err: any) {
+                    setPwError(err?.response?.data?.error || err?.response?.data?.new_password?.[0] || 'Password could not be changed — check your current password.');
+                  } finally {
+                    setPwBusy(false);
+                  }
                 }}
                 className="space-y-3 max-w-md pt-2"
               >
                 <div className="font-bold text-slate-900 dark:text-slate-100">
                   Update Account Password
                 </div>
+                {pwError && (
+                  <div role="alert" className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" /> {pwError}
+                  </div>
+                )}
+                {pwSaved && (
+                  <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Password changed — use it at your next sign-in.
+                  </div>
+                )}
                 <div>
                   <label className="block font-semibold mb-1">Current Password</label>
                   <input
                     type="password"
+                    required
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
@@ -451,16 +488,30 @@ export const SettingsView: React.FC = () => {
                   <label className="block font-semibold mb-1">New Strong Password</label>
                   <input
                     type="password"
+                    required
+                    minLength={8}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                   />
                 </div>
+                <div>
+                  <label className="block font-semibold mb-1">Confirm New Password</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
+                </div>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#15803D] hover:bg-[#166534] text-white font-bold rounded-lg shadow-xs"
+                  disabled={pwBusy}
+                  className="px-4 py-2 bg-[#15803D] hover:bg-[#166534] text-white font-bold rounded-lg shadow-xs disabled:opacity-60"
                 >
-                  Save New Password
+                  {pwBusy ? 'Saving…' : 'Save New Password'}
                 </button>
               </form>
             </div>
@@ -472,6 +523,7 @@ export const SettingsView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-3">
                 Notification Channels & Alerts
               </h3>
+              <p className="text-[11px] text-slate-400">Preferences are saved on this device and applied the next time you sign in here.</p>
               <div className="space-y-3">
                 <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div>

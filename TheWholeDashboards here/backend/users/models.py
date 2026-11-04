@@ -255,6 +255,10 @@ class PlatformSettings(models.Model):
             "recorded locked_until time."
         ),
     )
+    session_timeout_minutes = models.PositiveIntegerField(
+        default=60,
+        help_text="Idle minutes before an authenticated session requires re-authentication.",
+    )
     text_messaging_enabled = models.BooleanField(default=True)
     voice_messaging_enabled = models.BooleanField(default=True)
     updated_by = models.ForeignKey(

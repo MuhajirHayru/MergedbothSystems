@@ -64,6 +64,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [agriData, setAgriData] = useState<any>(null);
+  const [agriError, setAgriError] = useState('');
 
   const load = useCallback(async () => {
     setError(''); setLoading(true);
@@ -81,8 +82,8 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
 
   useEffect(() => {
     apiClient.get('/auth/agricultural-intel/')
-      .then((res) => setAgriData(res.data))
-      .catch(() => undefined);
+      .then((res) => { setAgriData(res.data); setAgriError(''); })
+      .catch((err) => setAgriError(formatApiError(err, 'Agricultural market intelligence could not be loaded.')));
   }, []);
 
   if (loading) return <div className="p-8 text-center text-xs text-slate-500">Loading platform overview…</div>;
@@ -211,6 +212,9 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
       </div>
 
       {/* Agricultural Market Intelligence */}
+      {agriError && (
+        <div role="alert" className="p-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 text-xs text-amber-700 dark:text-amber-300">{agriError}</div>
+      )}
       {agriData && (
         <div className="space-y-3">
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">

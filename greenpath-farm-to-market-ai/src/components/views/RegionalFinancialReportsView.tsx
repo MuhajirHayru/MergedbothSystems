@@ -36,9 +36,8 @@ import {
 } from 'lucide-react';
 
 export const RegionalFinancialReportsView: React.FC = () => {
-  const { regionalMetrics, setNotification } = useApp();
+  const { regionalMetrics, regionalMetricsStatus, setNotification } = useApp();
 
-  const [timeframe, setTimeframe] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Yearly'>('Monthly');
   const [scopeTab, setScopeTab] = useState<'financial' | 'analytics'>('financial');
   const [selectedRegion, setSelectedRegion] = useState<RegionalFinancialMetric | null>(null);
   const [selectedZone, setSelectedZone] = useState<ZoneFinancialMetric | null>(null);
@@ -105,7 +104,7 @@ export const RegionalFinancialReportsView: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `GreenPath_Regional_Financial_Report_${timeframe}_2026.csv`);
+    link.setAttribute('download', `GreenPath_Regional_Financial_Report_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -130,7 +129,25 @@ export const RegionalFinancialReportsView: React.FC = () => {
         ))}
       </div>
       {scopeTab === 'analytics' && <RegionalAnalyticsPanel />}
-      {scopeTab === 'financial' && (<>
+      {scopeTab === 'financial' && regionalMetricsStatus === 'loading' && (
+        <div className="space-y-4">
+          <div className="h-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />)}
+          </div>
+        </div>
+      )}
+      {scopeTab === 'financial' && regionalMetricsStatus === 'error' && (
+        <div role="alert" className="p-4 rounded-xl border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">
+          Regional financial records could not be loaded. Your role may not have payment visibility, or the service is unavailable.
+        </div>
+      )}
+      {scopeTab === 'financial' && regionalMetricsStatus === 'ready' && regionalMetrics.length === 0 && (
+        <div className="p-10 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-400">
+          No regional financial records yet — metrics appear once users and verified payments exist.
+        </div>
+      )}
+      {scopeTab === 'financial' && (regionalMetricsStatus === 'ready' && regionalMetrics.length > 0) && (<>
       {/* Scope Navigation / Breadcrumb */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
@@ -180,23 +197,6 @@ export const RegionalFinancialReportsView: React.FC = () => {
 
         {/* Action Controls & Export */}
         <div className="flex items-center gap-2">
-          {/* Timeframe selector */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold">
-            {(['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTimeframe(t)}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
-                  timeframe === t
-                    ? 'bg-white dark:bg-slate-900 text-[#15803D] dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#15803D] hover:bg-[#166534] text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
@@ -225,9 +225,8 @@ export const RegionalFinancialReportsView: React.FC = () => {
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-2">
             {(selectedRegion ? selectedRegion.totalTransactionValueETB : totalVolumeETB).toLocaleString()} ETB
           </div>
-          <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-            <TrendingUp className="w-3 h-3" />
-            <span>+14.8% vs previous {timeframe.toLowerCase()}</span>
+          <div className="text-[11px] text-slate-400 mt-1">
+            {selectedRegion ? 'Regional records on file' : `Across ${regionalMetrics.length} administrative regions · current platform records`}
           </div>
         </div>
 
