@@ -59,6 +59,14 @@ export const AdminOverviewPanel: React.FC = () => {
     }
   }, []);
 
+  const [agriData, setAgriData] = useState<any>(null);
+
+  useEffect(() => {
+    apiClient.get('/auth/agricultural-intel/')
+      .then((res) => setAgriData(res.data))
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return <div className="p-8 text-center text-xs text-slate-500">Loading overview…</div>;
@@ -138,6 +146,64 @@ export const AdminOverviewPanel: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Agricultural Market Intelligence */}
+      {agriData && (
+        <div className="space-y-3">
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+            <Truck className="w-4 h-4 text-emerald-600" /> Agricultural Market Intelligence
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Kpi label="Active Products" value={agriData.summary.total_active_products} />
+            <Kpi label="Scarce Products" value={agriData.summary.total_scarce_products} color={agriData.summary.total_scarce_products > 0 ? 'text-amber-600' : undefined} />
+            <Kpi label="Weredas Covered" value={agriData.summary.total_weredas_covered} />
+            <Kpi label="Product Categories" value={agriData.summary.total_categories} />
+          </div>
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                  <th className="py-2 px-3">Region</th>
+                  <th className="py-2 px-3 text-right">Products</th>
+                  <th className="py-2 px-3 text-right">Total Qty</th>
+                  <th className="py-2 px-3 text-right">Market Value</th>
+                  <th className="py-2 px-3 text-right">Farmers</th>
+                  <th className="py-2 px-3 text-right">Weredas</th>
+                  <th className="py-2 px-3">Top Category</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agriData.regions.map((r: any) => (
+                  <tr key={r.region} className="border-b border-slate-100 dark:border-slate-800/60">
+                    <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-100">{r.region}</td>
+                    <td className="py-2 px-3 text-right font-mono">{r.total_products}</td>
+                    <td className="py-2 px-3 text-right font-mono">{Number(r.total_quantity).toLocaleString()}</td>
+                    <td className="py-2 px-3 text-right font-mono">{Number(r.total_value_etb).toLocaleString()} ETB</td>
+                    <td className="py-2 px-3 text-right">{r.active_farmers}</td>
+                    <td className="py-2 px-3 text-right">{r.weredas_covered}</td>
+                    <td className="py-2 px-3">{r.top_category}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {agriData.scarce_products && agriData.scarce_products.length > 0 && (
+            <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20">
+              <div className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-2">⚠ Scarce Products (low stock)</div>
+              <div className="space-y-1">
+                {agriData.scarce_products.map((p: any, i: number) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{p.title}</span>
+                    <span className="text-slate-400">({p.category})</span>
+                    <span className="font-mono text-amber-600">{Number(p.quantity)} {p.unit}</span>
+                    <span className="text-slate-400">{p.region} · {p.farmer}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Recent Audit Activity */}
       <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">

@@ -2,6 +2,7 @@ from django.urls import path
 
 from payments.financial_api import MyPayslipsView
 from .admin_overview import AdminOverviewView
+from .agricultural_intel import AgriculturalIntelView, ProductRegionalDistributionView
 from .public_stats import PublicStatsView
 from .banner_views import (
     BannerAdminView,
@@ -41,6 +42,8 @@ urlpatterns = [
     path("announcement/", AnnouncementView.as_view(), name="announcement"),
     path("banners/", PublicBannerListView.as_view(), name="public_banners"),
     path("public-stats/", PublicStatsView.as_view(), name="public_stats"),
+    path("agricultural-intel/", AgriculturalIntelView.as_view(), name="agri_intel"),
+    path("product-regions/", ProductRegionalDistributionView.as_view(), name="product_regions"),
     path("admin-overview/", AdminOverviewView.as_view(), name="admin_overview"),
     path("my-payslips/", MyPayslipsView.as_view(), name="my_payslips"),
         path("website-content/", WebsiteContentView.as_view(), name="website_content"),
