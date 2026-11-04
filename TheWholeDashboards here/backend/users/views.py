@@ -230,7 +230,7 @@ class LoginView(views.APIView):
             actor=user,
             action="login_success",
             target=str(user.pk),
-            detail="User signed in.",
+            detail=f"{user.email} signed in ({str(user.role).replace('_', ' ').title()}).",
         )
 
         token_started_at = perf_counter()

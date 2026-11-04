@@ -43,7 +43,23 @@ function Kpi({ label, value, sub, icon: Icon, color }: { label: string; value: s
   );
 }
 
-export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }> = ({ onNavigate }) => {
+const money = (v: string | number) =>
+  Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const titleCase = (s: string) =>
+  s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+const relTime = (iso: string) => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+};
+
+export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; refreshKey?: number }> = ({ onNavigate, refreshKey = 0 }) => {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,7 +77,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
 
   useEffect(() => {
     apiClient.get('/auth/agricultural-intel/')
@@ -74,7 +90,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
   if (!data) return null;
 
   const roleData = Object.entries(data.users.by_role)
-    .map(([role, count]) => ({ name: role.replace(/_/g, ' '), count }))
+    .map(([role, count]) => ({ name: titleCase(role), count }))
     .sort((a, b) => b.count - a.count);
 
   const orderStatus = [
@@ -84,12 +100,12 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
   ].filter(d => d.value > 0);
 
   const quickActions = [
-    { label: 'Manage Users', view: 'all_users', icon: Users, count: data.users.total },
-    { label: 'Freight Bidding', view: 'freight_bids', icon: Truck, count: data.freight.open },
-    { label: 'Support Inbox', view: 'support_management', icon: LifeBuoy, count: data.support.open },
-    { label: 'Discounts', view: 'discount_management', icon: Tag, count: data.discounts.active_campaigns },
-    { label: 'Audit Logs', view: 'audit_logs', icon: FileText, count: data.recent_audit.length },
-    { label: 'Orders', view: 'orders', icon: ShoppingCart, count: data.orders.total },
+    { label: 'Manage Users', view: 'all_users', icon: Users, sub: `${data.users.total} registered` },
+    { label: 'Freight Bidding', view: 'freight_bids', icon: Truck, sub: data.freight.open > 0 ? `${data.freight.open} open jobs` : 'No open jobs' },
+    { label: 'Support Inbox', view: 'support_management', icon: LifeBuoy, sub: data.support.open > 0 ? `${data.support.open} open tickets` : 'Inbox clear' },
+    { label: 'Discounts', view: 'discount_management', icon: Tag, sub: data.discounts.active_campaigns > 0 ? `${data.discounts.active_campaigns} active` : 'No campaigns' },
+    { label: 'Audit Logs', view: 'audit_logs', icon: FileText, sub: 'Latest platform events' },
+    { label: 'Orders', view: 'orders', icon: ShoppingCart, sub: `${data.orders.total} lifetime orders` },
   ];
 
   return (
@@ -100,11 +116,11 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
           <button
             key={qa.view}
             onClick={() => onNavigate(qa.view)}
-            className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#15803D] hover:shadow-md transition-all text-left group"
+            className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#15803D] hover:shadow-md transition-all text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
             <qa.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-1.5" />
             <div className="text-xs font-bold text-slate-800 dark:text-slate-100">{qa.label}</div>
-            <div className="text-[10px] text-slate-400 mt-0.5">{qa.count} records</div>
+            <div className="text-[10px] text-slate-400 mt-0.5">{qa.sub}</div>
             <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-emerald-500 transition-colors mt-1" />
           </button>
         ))}
@@ -114,14 +130,14 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi label="Total Users" value={data.users.total} sub={`+${data.users.new_7d} this week`} icon={Users} color="text-emerald-600" />
         <Kpi label="Pending Registrations" value={data.users.pending} sub="Need review" icon={AlertTriangle} color={data.users.pending > 0 ? 'text-amber-600' : undefined} />
-        <Kpi label="Platform GMV" value={`${Number(data.orders.gmv).toLocaleString()} ETB`} sub={`${data.orders.new_7d} new orders this week`} icon={ShoppingCart} color="text-emerald-600" />
-        <Kpi label="Wallet Held (Escrow)" value={`${Number(data.wallet.held).toLocaleString()} ETB`} sub="Locked pending delivery" icon={Wallet} color="text-amber-600" />
+        <Kpi label="Platform GMV" value={`${money(data.orders.gmv)} ETB`} sub={`${data.orders.new_7d} new orders this week`} icon={ShoppingCart} color="text-emerald-600" />
+        <Kpi label="Wallet Held (Escrow)" value={`${money(data.wallet.held)} ETB`} sub="Locked pending delivery" icon={Wallet} color="text-amber-600" />
       </div>
 
       {/* KPI Row 2 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Platform Revenue" value={`${Number(data.financials.revenue).toLocaleString()} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" />
-        <Kpi label="Payroll" value={`${Number(data.financials.payroll).toLocaleString()} ETB`} sub="Staff salaries paid" icon={Users} />
+        <Kpi label="Platform Revenue" value={`${money(data.financials.revenue)} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" />
+        <Kpi label="Payroll" value={`${money(data.financials.payroll)} ETB`} sub="Staff salaries paid" icon={Users} />
         <Kpi label="Freight Assigned" value={`${data.freight.assigned} / ${data.freight.assigned + data.freight.open}`} sub="Deliveries with drivers" icon={Truck} />
         <Kpi label="Support Open" value={data.support.open} sub={`${data.support.unanswered} unanswered`} icon={LifeBuoy} color={data.support.unanswered > 0 ? 'text-amber-600' : undefined} />
       </div>
@@ -135,7 +151,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
               <BarChart data={roleData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={110} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={110} interval={0} />
                 <Tooltip />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={14}>
                   {roleData.map((_, i) => <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />)}
@@ -146,11 +162,10 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
         </Card>
         <Card>
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Order Status</div>
-          <div className="h-56">
+          <div className="h-56 relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={orderStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4}
-                  label={({ name, value }) => `${name}: ${value}`}>
+                <Pie data={orderStatus} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={50} outerRadius={75} paddingAngle={4}>
                   {orderStatus.map((d, i) => <Cell key={i} fill={d.color} />)}
                 </Pie>
                 <Tooltip />
@@ -169,7 +184,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
             <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Platform Revenue</span>
           </div>
           <div className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
-            {Number(data.financials.revenue).toLocaleString()} ETB
+            {money(data.financials.revenue)} ETB
           </div>
           <div className="text-[11px] text-slate-400 mt-1">Commission + delivery service fees</div>
         </Card>
@@ -180,7 +195,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
           </div>
           <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">{data.discounts.active_campaigns}</div>
           <div className="text-[11px] text-slate-400 mt-1">
-            {data.discounts.total_redemptions} redemptions · {Number(data.discounts.total_discount_amount).toLocaleString()} ETB given
+            {data.discounts.total_redemptions} redemptions · {money(data.discounts.total_discount_amount)} ETB given
           </div>
         </Card>
         <Card className="!border-sky-200 dark:!border-sky-800">
@@ -189,9 +204,9 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
             <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Wallet Available</span>
           </div>
           <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">
-            {Number(data.wallet.available).toLocaleString()} ETB
+            {money(data.wallet.available)} ETB
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">{Number(data.wallet.held).toLocaleString()} ETB held in escrow</div>
+          <div className="text-[11px] text-slate-400 mt-1">{money(data.wallet.held)} ETB held in escrow</div>
         </Card>
       </div>
 
@@ -261,7 +276,7 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void }
         <div className="space-y-1 max-h-56 overflow-y-auto">
           {data.recent_audit.map((a, i) => (
             <div key={i} className="flex items-start gap-2 text-xs border-b border-slate-50 dark:border-slate-800/50 pb-1">
-              <span className="font-mono text-[10px] text-slate-400 whitespace-nowrap">{new Date(a.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="font-mono text-[10px] text-slate-400 whitespace-nowrap w-14 shrink-0">{relTime(a.created_at)}</span>
               <span className="font-semibold text-slate-700 dark:text-slate-200 min-w-32">{a.action.replace(/_/g, ' ')}</span>
               <span className="text-slate-400 truncate">{a.detail}</span>
             </div>
