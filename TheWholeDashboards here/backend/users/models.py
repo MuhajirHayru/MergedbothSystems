@@ -259,6 +259,14 @@ class PlatformSettings(models.Model):
         default=60,
         help_text="Idle minutes before an authenticated session requires re-authentication.",
     )
+    scarcity_critical_sellers = models.PositiveSmallIntegerField(
+        default=2,
+        help_text="Listing-availability rule: sellers at or below this count classify a product/area as critically scarce.",
+    )
+    scarcity_low_sellers = models.PositiveSmallIntegerField(
+        default=5,
+        help_text="Listing-availability rule: sellers at or below this count classify a product/area as low availability.",
+    )
     text_messaging_enabled = models.BooleanField(default=True)
     voice_messaging_enabled = models.BooleanField(default=True)
     updated_by = models.ForeignKey(

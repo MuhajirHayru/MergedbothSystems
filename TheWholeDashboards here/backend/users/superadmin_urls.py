@@ -10,6 +10,7 @@ from .audit_views import (
     AuditSummaryView,
     UserActivityView,
 )
+from .superadmin_messaging_insights import SuperAdminMessagingInsightsView
 from .superadmin_statistics import SuperAdminStatisticsView
 from .superadmin_views import (
     AdminAccountViewSet,
@@ -30,6 +31,7 @@ router.register("audit", AuditLogListView, basename="superadmin-audit")
 
 urlpatterns = [
     path("statistics/", SuperAdminStatisticsView.as_view(), name="superadmin-statistics"),
+    path("messaging-insights/", SuperAdminMessagingInsightsView.as_view(), name="superadmin-messaging-insights"),
     # Part 22 — must precede the accounts router so 'bulk-status' is not read as a pk.
     path(
         "accounts/bulk-status/",

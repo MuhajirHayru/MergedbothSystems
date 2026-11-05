@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useMessaging } from '../../context/MessagingContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -40,6 +40,45 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { currentRole, activeView, setActiveView, currentUser, setAiModalOpen, logout } = useApp();
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('gp_sidebar_collapsed');
+      return new Set(stored ? (JSON.parse(stored) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Keep the group containing the active destination expanded.
+  useEffect(() => {
+    const navItems = getNavItems() as Array<{ id: string; header?: boolean; group?: boolean }>;
+    const headers = navItems.filter((n) => n.header && n.group);
+    const activeIndex = navItems.findIndex((n) => n.id === activeView);
+    if (activeIndex === -1) return;
+    let owner: string | null = null;
+    for (let i = activeIndex - 1; i >= 0; i -= 1) {
+      if (navItems[i].header) { owner = navItems[i].id; break; }
+    }
+    if (owner && collapsedGroups.has(owner)) {
+      setCollapsedGroups((prev) => {
+        const next = new Set(prev);
+        next.delete(owner!);
+        try { localStorage.setItem('gp_sidebar_collapsed', JSON.stringify([...next])); } catch { /* private mode */ }
+        return next;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView]);
+
+  const toggleGroup = (id: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try { localStorage.setItem('gp_sidebar_collapsed', JSON.stringify([...next])); } catch { /* private mode */ }
+      return next;
+    });
+  };
   const { unreadTotal } = useMessaging();
   const { theme } = useTheme();
 
@@ -155,33 +194,38 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         ];
       case 'super_admin':
         return [
-          { id: '_hdr_overview', label: 'Overview', header: true },
-          { id: 'super_admin_dashboard', label: 'Platform Overview', icon: LayoutDashboard },
-          { id: 'system_admin', label: 'Platform Operations', icon: Settings },
+          { id: '_hdr_overview', label: 'Executive Overview', header: true, group: true },
+          { id: 'super_admin_dashboard', label: 'Command Centre', icon: LayoutDashboard },
+          { id: 'system_admin', label: 'System Health & Operations', icon: Settings },
           { id: 'reports_regional', label: 'Regional & Financial Reports', icon: BarChart3 },
-          { id: '_hdr_users', label: 'Users & Access', header: true },
-          { id: 'all_users', label: 'Platform Users & Staff', icon: Users },
+          { id: '_hdr_users', label: 'Users, Staff & Access', header: true, group: true },
+          { id: 'all_users', label: 'All Users & Approvals', icon: Users },
+          { id: 'all_users_wholesalers', label: 'Verified Wholesalers', icon: ShoppingBag },
           { id: 'staff_management', label: 'Staff Management', icon: UserCog },
           { id: 'account_control', label: 'Account & System Controls', icon: ShieldAlert },
-          { id: '_hdr_marketplace', label: 'Marketplace', header: true },
+          { id: '_hdr_marketplace', label: 'Marketplace', header: true, group: true },
           { id: 'admin_products', label: 'Products & Listings', icon: ShoppingBag },
           { id: 'sa_categories', label: 'Product Categories', icon: Layers },
+          { id: 'scarcity_monitoring', label: 'Scarcity Monitoring', icon: Package },
           { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
-          { id: '_hdr_logistics', label: 'Logistics', header: true },
+          { id: '_hdr_geography', label: 'Geography & Intelligence', header: true, group: true },
+          { id: 'regional_analytics', label: 'Regional Analytics', icon: MapPin },
+          { id: '_hdr_logistics', label: 'Orders, Logistics & Delivery', header: true, group: true },
           { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
           { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
-          { id: '_hdr_support', label: 'Support & Communication', header: true },
+          { id: '_hdr_finance', label: 'Finance & Wallet Oversight', header: true, group: true },
+          { id: 'sa_finance', label: 'Financial Controls & Pricing', icon: TrendingUp },
+          { id: '_hdr_support', label: 'Messages & Support', header: true, group: true },
           { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
-          { id: 'messaging_oversight', label: 'Messaging Oversight', icon: Eye },
-          { id: 'messaging', label: 'Messages', icon: MessageSquare },
-          { id: '_hdr_content', label: 'Content', header: true },
+          { id: 'messaging_oversight', label: 'Message Insights & Oversight', icon: Eye },
+          { id: 'messaging', label: 'Message Centre', icon: MessageSquare },
+          { id: '_hdr_content', label: 'Content & Presentation', header: true, group: true },
           { id: 'sa_content', label: 'Website Content & CMS', icon: Sliders },
           { id: 'banner_management', label: 'Banners & Announcements', icon: ImageIcon },
-          { id: '_hdr_governance', label: 'Governance & Security', header: true },
+          { id: '_hdr_governance', label: 'Governance & Security', header: true, group: true },
           { id: 'sa_security', label: 'Security & Lockout Rules', icon: Shield },
-          { id: 'sa_finance', label: 'Financial Controls & Pricing', icon: TrendingUp },
-          { id: 'audit_logs', label: 'Master Audit Logs', icon: FileText },
-          { id: '_hdr_workspace', label: 'Workspace', header: true },
+          { id: 'audit_logs', label: 'Audit & Administrative History', icon: FileText },
+          { id: '_hdr_workspace', label: 'Workspace', header: true, group: true },
           { id: 'settings', label: 'System Settings', icon: Settings },
         ];
       default:
@@ -194,7 +238,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const navItems = getNavItems();
+  const navItems = getNavItems() as Array<{
+    id: string;
+    label: string;
+    icon?: React.ElementType;
+    header?: boolean;
+    group?: boolean;
+    highlight?: boolean;
+    badge?: string;
+  }>;
 
   const handleNavClick = (viewId: string) => {
     setActiveView(viewId);
@@ -248,16 +300,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <div className="text-[10px] font-bold text-white/70 uppercase tracking-wider px-2.5 mb-2">
               Workspace Menu
             </div>
-            {navItems.map((item) => {
+            {navItems.map((item, index) => {
               if ((item as any).header) {
+                const isGroup = Boolean((item as any).group);
+                const collapsed = collapsedGroups.has(item.id);
+                const HeaderTag = isGroup ? 'button' : 'div';
                 return (
-                  <div
+                  <HeaderTag
                     key={item.id}
-                    className="pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400/70 dark:text-slate-500 select-none"
+                    {...(isGroup
+                      ? {
+                          onClick: () => toggleGroup(item.id),
+                          'aria-expanded': !collapsed,
+                          type: 'button' as const,
+                        }
+                      : {})}
+                    className={`pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400/70 dark:text-slate-500 select-none flex items-center justify-between w-full ${isGroup ? 'hover:text-slate-300 dark:hover:text-slate-300 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/60 rounded' : ''}`}
                   >
-                    {item.label}
-                  </div>
+                    <span className="flex items-center gap-1.5">
+                      {item.label}
+                    </span>
+                    {isGroup && (
+                      <ChevronRight className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+                    )}
+                  </HeaderTag>
                 );
+              }
+              // Hide items that belong to a collapsed group.
+              const parentHeaderIndex = (() => {
+                for (let i = index - 1; i >= 0; i -= 1) {
+                  if ((navItems[i] as any).header) return i;
+                }
+                return -1;
+              })();
+              if (parentHeaderIndex >= 0 && (navItems[parentHeaderIndex] as any).group && collapsedGroups.has(navItems[parentHeaderIndex].id)) {
+                return null;
               }
               const Icon = item.icon!;
               const isActive = activeView === item.id;

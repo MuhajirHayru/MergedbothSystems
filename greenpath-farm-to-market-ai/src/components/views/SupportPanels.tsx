@@ -6,8 +6,9 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Heart, Package, Eye, RefreshCw } from 'lucide-react';
-import { api } from '../../services/apiClient';
+import { api, apiClient } from '../../services/apiClient';
 import { formatApiError } from '../../lib/apiErrors';
+import { LineChart, Line, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 
 function fmtDate(iso: null | string) {
   if (!iso) return '—';
@@ -155,8 +156,12 @@ export const AdminProductsPanel: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmVisibility, setConfirmVisibility] = useState<null | { id: string; title: string; next: 'ACTIVE' | 'INACTIVE' }>(null);
+  const [visibilityReason, setVisibilityReason] = useState('');
 
   const load = useCallback(async () => {
     setError(''); setLoading(true);
@@ -178,8 +183,55 @@ export const AdminProductsPanel: React.FC = () => {
     return () => clearTimeout(t);
   }, [load]);
 
+  const changeVisibility = async () => {
+    if (!confirmVisibility) return;
+    setBusyId(confirmVisibility.id); setError(''); setNotice('');
+    try {
+      const res = await apiClient.patch('/admin/products/', {
+        product_id: confirmVisibility.id,
+        status: confirmVisibility.next,
+        reason: visibilityReason.trim(),
+      });
+      setNotice(`"${res.data.product.title}" is now ${String(res.data.product.status).toLowerCase()} — marketplace discovery updated.`);
+      setConfirmVisibility(null); setVisibilityReason('');
+      await load();
+    } catch (err) {
+      setError(formatApiError(err, 'Visibility change failed.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {confirmVisibility && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-6 space-y-3" role="dialog" aria-modal="true" aria-label="Change listing visibility">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              {confirmVisibility.next === 'INACTIVE' ? 'Hide' : 'Publish'} &quot;{confirmVisibility.title}&quot;?
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {confirmVisibility.next === 'INACTIVE'
+                ? 'The listing is removed from marketplace discovery immediately. The seller keeps the record.'
+                : 'The listing becomes visible to all marketplace users again.'}
+              {' '}A reason is recorded in the audit trail.
+            </p>
+            {error && <div role="alert" className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{error}</div>}
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Reason (required, min 5 characters)
+              <textarea value={visibilityReason} onChange={(e) => setVisibilityReason(e.target.value)} rows={2}
+                className="mt-1 w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmVisibility(null)} className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-700 dark:text-slate-200">Cancel</button>
+              <button onClick={() => void changeVisibility()} disabled={visibilityReason.trim().length < 5 || busyId === confirmVisibility.id}
+                className={`px-4 py-2 rounded-lg text-white text-xs font-bold disabled:opacity-60 ${confirmVisibility.next === 'INACTIVE' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-[#15803D] hover:bg-[#166534]'}`}>
+                {confirmVisibility.next === 'INACTIVE' ? 'Hide listing' : 'Publish listing'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
           <Package className="w-4 h-4 text-emerald-600" /> Product listings {data?.scope_limited ? 'within your assigned scope' : '(platform-wide)'}
@@ -210,9 +262,22 @@ export const AdminProductsPanel: React.FC = () => {
               </tr>
             </thead>
             <tbody>
+              {notice && <div className="p-2.5 mb-2 rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40 text-xs text-emerald-700 dark:text-emerald-300">{notice}</div>}
               {data.products.map((p: any) => (
                 <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800/60">
-                  <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-100">{p.title}</td>
+                  <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-100">
+                    {p.title}
+                    {(p.status === 'ACTIVE' || p.status === 'INACTIVE') && (
+                      <button
+                        onClick={() => { setConfirmVisibility({ id: p.id, title: p.title, next: p.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }); setVisibilityReason(''); }}
+                        disabled={busyId === p.id}
+                        className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${p.status === 'ACTIVE' ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'}`}
+                        aria-label={`${p.status === 'ACTIVE' ? 'Hide from marketplace' : 'Publish to marketplace'}: ${p.title}`}
+                      >
+                        {busyId === p.id ? '…' : p.status === 'ACTIVE' ? 'Hide' : 'Publish'}
+                      </button>
+                    )}
+                  </td>
                   <td className="py-2 px-3">{p.seller} <span className="text-slate-500 dark:text-slate-400">({p.seller_role.replace(/_/g, ' ')})</span></td>
                   <td className="py-2 px-3">{p.category}</td>
                   <td className="py-2 px-3 text-right font-mono">{p.price_per_unit}</td>
@@ -238,6 +303,7 @@ export const MessagingOversightPanel: React.FC = () => {
   const [reason, setReason] = useState('');
   const [openMessages, setOpenMessages] = useState<null | { id: string; messages: any[] }>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [insights, setInsights] = useState<any>(null);
 
   const load = useCallback(async () => {
     setError(''); setLoading(true);
@@ -249,6 +315,14 @@ export const MessagingOversightPanel: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    // Counts-only intelligence strip; conversation bodies stay behind the
+    // reason-gated oversight flow below.
+    apiClient.get('/superadmin/messaging-insights/')
+      .then((res) => setInsights(res.data))
+      .catch(() => setInsights(null));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -271,6 +345,70 @@ export const MessagingOversightPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
+    {/* Messaging intelligence strip — counts only, from /superadmin/messaging-insights/ */}
+    {insights && (
+      <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+        <div className="text-xs font-bold text-slate-700 dark:text-slate-200">Messaging insights (platform-wide counts)</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {[
+            ['Conversations', insights.totals?.conversations],
+            ['Messages', insights.totals?.messages],
+            ['Unread', insights.totals?.unread],
+            ['Voice', insights.totals?.voice_messages],
+            ['Active 7d', insights.totals?.active_conversations_7d],
+            ['Today', insights.activity?.today],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">{label}</div>
+              <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100">{value ?? '—'}</div>
+            </div>
+          ))}
+        </div>
+        {(insights.trend_14d ?? []).some((p: any) => p.messages > 0) && (
+          <div className="h-40" role="img" aria-label="Line chart of messages sent over the last 14 days">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={insights.trend_14d}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="day" tick={{ fontSize: 9 }} tickFormatter={(d: string) => d.slice(5)} />
+                <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                <Tooltip />
+                <Line type="monotone" dataKey="messages" stroke="#15803D" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Top senders by role</div>
+            <table className="w-full text-xs">
+              <tbody>
+                {(insights.top_senders_by_role ?? []).slice(0, 5).map((row: any) => (
+                  <tr key={`${row.actor}-${row.role}`} className="border-b border-slate-100 dark:border-slate-800/60">
+                    <td className="py-1 font-semibold text-slate-700 dark:text-slate-200">{row.actor}</td>
+                    <td className="py-1 text-slate-500 dark:text-slate-400">{String(row.role).replace(/_/g, ' ').toLowerCase()}</td>
+                    <td className="py-1 text-right font-mono">{row.messages}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Moderation status</div>
+            <div className="space-y-1">
+              {Object.entries(insights.totals?.by_moderation_status ?? {}).map(([status, count]) => (
+                <div key={status} className="flex justify-between text-xs">
+                  <span className="text-slate-600 dark:text-slate-300">{String(status).replace(/_/g, ' ').toLowerCase()}</span>
+                  <span className="font-mono font-semibold">{String(count)}</span>
+                </div>
+              ))}
+              {(insights.unavailable ?? []).length > 0 && (
+                <div className="text-[10px] text-slate-400 pt-1">Unavailable: {insights.unavailable.map((u: string) => u.split(':')[0]).join(', ')}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
           <Eye className="w-4 h-4 text-emerald-600" /> Conversation oversight

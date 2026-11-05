@@ -29,7 +29,7 @@ from payments.models import Order, PaymentRecord, Wallet
 from payments.freight_models import FreightBid, FreightJob
 from products.models import Product
 from support.models import SupportTicket, SupportTicketMessage
-from users.models import AccountStatus, Role
+from users.models import AccountStatus, AuditLog, Role
 from users.permissions import IsAuthenticatedRole
 
 
@@ -103,14 +103,20 @@ class SuperAdminStatisticsView(APIView):
         )
         region_by_user = {row["id"]: _region_of(row) for row in user_rows}
 
+        STAFF_ROLES = {
+            Role.SUPER_ADMIN, Role.TOP_USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN,
+            Role.WEREDA_ADMIN, Role.USER_ADMIN, Role.FINANCIAL_MANAGER,
+            Role.LOGISTICS_MANAGER, Role.CUSTOMER_SUPPORT,
+        }
         by_role, by_status, new_in_period = {}, {}, 0
         region_users = {}
         for row in user_rows:
             by_role[row["role"]] = by_role.get(row["role"], 0) + 1
             by_status[row["status"]] = by_status.get(row["status"], 0) + 1
             region = region_by_user[row["id"]]
-            bucket = region_users.setdefault(region, {"roles": {}, "user_ids": set()})
+            bucket = region_users.setdefault(region, {"roles": {}, "statuses": {}, "user_ids": set()})
             bucket["roles"][row["role"]] = bucket["roles"].get(row["role"], 0) + 1
+            bucket["statuses"][row["status"]] = bucket["statuses"].get(row["status"], 0) + 1
             bucket["user_ids"].add(row["id"])
             if period_from and row["created_at"] and period_from <= row["created_at"] <= period_to:
                 new_in_period += 1
@@ -221,6 +227,7 @@ class SuperAdminStatisticsView(APIView):
             roles = users_in_region["roles"]
             orders = region_orders.get(region, {"count": 0, "value": Decimal("0")})
             wallets = region_wallets.get(region, {"available": Decimal("0"), "held": Decimal("0")})
+            statuses = users_in_region["statuses"]
             region_rows.append({
                 "region": region,
                 "totalUsers": sum(roles.values()),
@@ -228,6 +235,10 @@ class SuperAdminStatisticsView(APIView):
                 "wholesalersCount": roles.get(Role.WHOLESALER, 0),
                 "retailersCount": roles.get(Role.RETAILER, 0),
                 "driversCount": roles.get(Role.DRIVER, 0),
+                "staffCount": sum(v for k, v in roles.items() if k in STAFF_ROLES),
+                "approvedCount": statuses.get("APPROVED", 0),
+                "pendingCount": statuses.get("PENDING", 0),
+                "suspendedCount": statuses.get("SUSPENDED", 0),
                 "totalTransactions": orders["count"],
                 "totalTransactionValueETB": _money(orders["value"]),
                 "verifiedPaymentValueETB": payment_sums.get("VERIFIED", "0.00"),
@@ -239,8 +250,42 @@ class SuperAdminStatisticsView(APIView):
             })
         region_rows.sort(key=lambda r: -r["totalUsers"])
 
+        # ---- 10. Administrative accountability (from immutable audit rows) ----
+        approval_rows = (
+            AuditLog.objects.filter(action__in=["user_approved", "user_rejected"])
+            .values("action", "actor_id", "actor__full_name", "actor__role")
+            .annotate(total=Count("id"))
+            .order_by("-total")[:15]
+        )
+        approvals_by_actor = {}
+        for row in approval_rows:
+            key = (row["actor_id"], row["actor__full_name"] or "Unknown", row["actor__role"] or "UNKNOWN")
+            entry = approvals_by_actor.setdefault(key, {"approvals": 0, "rejections": 0})
+            entry["approvals" if row["action"] == "user_approved" else "rejections"] += row["total"]
+        administrative = {
+            "by_actor": [
+                {
+                    "actor_id": str(actor_id) if actor_id else None,
+                    "actor": name,
+                    "role": role,
+                    "approvals": counts["approvals"],
+                    "rejections": counts["rejections"],
+                }
+                for (actor_id, name, role), counts in sorted(
+                    approvals_by_actor.items(), key=lambda kv: -(kv[1]["approvals"] + kv[1]["rejections"])
+                )
+            ],
+            "pending_by_region": [
+                {"region": region, "pending": users_in_region["statuses"].get("PENDING", 0)}
+                for region, users_in_region in sorted(region_users.items())
+                if users_in_region["statuses"].get("PENDING", 0) > 0
+            ],
+            "note": "Counts come from recorded audit rows; accounts approved before audit logging existed are not attributable.",
+        }
+
         return Response({
             "success": True,
+            "administrative": administrative,
             "period": {
                 "from": period_from.isoformat() if period_from else None,
                 "to": period_to.isoformat(),

@@ -30,9 +30,14 @@ function Card({ children, className }: { children: React.ReactNode; className?: 
   return <div className={`p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 ${className ?? ''}`}>{children}</div>;
 }
 
-function Kpi({ label, value, sub, icon: Icon, color }: { label: string; value: string | number; sub?: string; icon: any; color?: string }) {
+function Kpi({ label, value, sub, icon: Icon, color, onClick, destination }: { label: string; value: string | number; sub?: string; icon: any; color?: string; onClick?: () => void; destination?: string }) {
+  const interactive = Boolean(onClick && destination);
   return (
-    <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+    <div
+      onClick={onClick}
+      {...(interactive ? { role: 'button', tabIndex: 0, 'aria-label': `${label} — open ${destination}`, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } } } : {})}
+      className={`p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 ${interactive ? 'cursor-pointer hover:border-[#15803D] hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500' : ''}`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-slate-500 uppercase tracking-wide font-bold">{label}</span>
         <Icon className={`w-4 h-4 ${color ?? 'text-slate-500 dark:text-slate-400'}`} />
@@ -129,18 +134,18 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
 
       {/* KPI Row 1 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Total Users" value={data.users.total} sub={`+${data.users.new_7d} this week`} icon={Users} color="text-emerald-600" />
-        <Kpi label="Pending Registrations" value={data.users.pending} sub="Need review" icon={AlertTriangle} color={data.users.pending > 0 ? 'text-amber-600' : undefined} />
-        <Kpi label="Platform GMV" value={`${money(data.orders.gmv)} ETB`} sub={`${data.orders.new_7d} new orders this week`} icon={ShoppingCart} color="text-emerald-600" />
-        <Kpi label="Wallet Held (Escrow)" value={`${money(data.wallet.held)} ETB`} sub="Locked pending delivery" icon={Wallet} color="text-amber-600" />
+        <Kpi label="Total Users" value={data.users.total} sub={`+${data.users.new_7d} this week`} icon={Users} color="text-emerald-600" onClick={() => onNavigate('all_users')} destination="All Users" />
+        <Kpi label="Pending Registrations" value={data.users.pending} sub="Need review" icon={AlertTriangle} color={data.users.pending > 0 ? 'text-amber-600' : undefined} onClick={() => onNavigate('all_users')} destination="approval queue" />
+        <Kpi label="Platform GMV" value={`${money(data.orders.gmv)} ETB`} sub={`${data.orders.new_7d} new orders this week`} icon={ShoppingCart} color="text-emerald-600" onClick={() => onNavigate('reports_regional')} destination="Regional Reports" />
+        <Kpi label="Wallet Held (Escrow)" value={`${money(data.wallet.held)} ETB`} sub="Locked pending delivery" icon={Wallet} color="text-amber-600" onClick={() => onNavigate('system_admin')} destination="Wallet Oversight" />
       </div>
 
       {/* KPI Row 2 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Platform Revenue" value={`${money(data.financials.revenue)} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" />
-        <Kpi label="Payroll" value={`${money(data.financials.payroll)} ETB`} sub="Staff salaries paid" icon={Users} />
-        <Kpi label="Freight Assigned" value={`${data.freight.assigned} / ${data.freight.assigned + data.freight.open}`} sub="Deliveries with drivers" icon={Truck} />
-        <Kpi label="Support Open" value={data.support.open} sub={`${data.support.unanswered} unanswered`} icon={LifeBuoy} color={data.support.unanswered > 0 ? 'text-amber-600' : undefined} />
+        <Kpi label="Platform Revenue" value={`${money(data.financials.revenue)} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" onClick={() => onNavigate('reports_regional')} destination="Financial Reports" />
+        <Kpi label="Payroll" value={`${money(data.financials.payroll)} ETB`} sub="Staff salaries paid" icon={Users} onClick={() => onNavigate('reports_regional')} destination="Financial Reports" />
+        <Kpi label="Freight Assigned" value={`${data.freight.assigned} / ${data.freight.assigned + data.freight.open}`} sub="Deliveries with drivers" icon={Truck} onClick={() => onNavigate('freight_bids')} destination="Freight Bidding" />
+        <Kpi label="Support Open" value={data.support.open} sub={`${data.support.unanswered} unanswered`} icon={LifeBuoy} color={data.support.unanswered > 0 ? 'text-amber-600' : undefined} onClick={() => onNavigate('support_management')} destination="Support Inbox" />
       </div>
 
       {/* Charts Row */}

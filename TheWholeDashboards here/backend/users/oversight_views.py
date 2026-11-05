@@ -7,13 +7,15 @@ content only with a recorded reason — every inspection is audited. Message
 content is never exposed to other roles.
 """
 
+import json
+
 from django.db.models import Count, Q, Sum
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from chat.models import ChatChannel, Message
-from products.models import Product
+from products.models import Product, ProductStatus
 from registrations.services import users_visible_to_admin
 from users.audit import log_action
 from users.models import AuditLog, Role
@@ -27,6 +29,60 @@ class AdminProductVisibilityView(APIView):
 
     def get_permissions(self):
         return [IsAuthenticatedRole(OVERSIGHT_ROLES)]
+
+    def patch(self, request):
+        """Activate or deactivate a listing — enforced in marketplace discovery.
+
+        Body: {product_id, status: "ACTIVE"|"INACTIVE", reason}. Super Admin and
+        authorized oversight roles only; scoped admins may only act on listings
+        within their visible user set. Every change is audited.
+        """
+        from django.utils import timezone as dj_tz
+
+        user = request.user
+        product_id = request.data.get("product_id")
+        new_status = request.data.get("status")
+        reason = (request.data.get("reason") or "").strip()
+        if not product_id or new_status not in (ProductStatus.ACTIVE, ProductStatus.INACTIVE):
+            return Response(
+                {"success": False, "error": "product_id and status (ACTIVE|INACTIVE) are required."},
+                status=400,
+            )
+        if len(reason) < 5:
+            return Response(
+                {"success": False, "error": "A reason of at least 5 characters is required for a visibility change."},
+                status=400,
+            )
+        try:
+            product = Product.objects.select_related("owner").get(pk=product_id)
+        except Product.DoesNotExist:
+            return Response({"success": False, "error": "Listing not found."}, status=404)
+        if user.role != Role.SUPER_ADMIN:
+            visible_ids = users_visible_to_admin(user).values("pk")
+            if not visible_ids.filter(pk=product.owner_id).exists():
+                return Response({"success": False, "error": "This listing is outside your administrative scope."}, status=403)
+        if product.status == new_status:
+            return Response({"success": False, "error": f"Listing is already {new_status.lower()}."}, status=400)
+        previous = product.status
+        product.status = new_status
+        product.save(update_fields=["status", "updated_at"])
+        AuditLog.objects.create(
+            actor=user,
+            action="product_visibility_changed",
+            target=str(product.pk),
+            detail=json.dumps({
+                "listing": product.title,
+                "seller": product.owner.full_name,
+                "previous": previous,
+                "new": new_status,
+                "reason": reason,
+            }, sort_keys=True, default=str),
+        )
+        return Response({
+            "success": True,
+            "product": {"id": str(product.pk), "title": product.title, "status": product.status},
+            "previous_status": previous,
+        })
 
     def get(self, request):
         user = request.user

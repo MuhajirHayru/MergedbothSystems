@@ -20,7 +20,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 
-export const UserAdminDashboard: React.FC = () => {
+export const UserAdminDashboard: React.FC<{ initialTab?: 'pending' | 'directory' | 'suspended'; initialRole?: string }> = ({ initialTab, initialRole }) => {
   const {
     applications,
     updateApplicationStatus,
@@ -31,9 +31,9 @@ export const UserAdminDashboard: React.FC = () => {
     setActiveView,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'pending' | 'directory' | 'suspended'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'directory' | 'suspended'>(initialTab ?? 'pending');
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<string>(initialRole ?? 'all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [selectedReviewUser, setSelectedReviewUser] = useState<UserProfile | null>(null);
   const [regionOptions, setRegionOptions] = useState<string[]>([]);

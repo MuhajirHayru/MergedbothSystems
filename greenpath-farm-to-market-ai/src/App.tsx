@@ -44,6 +44,7 @@ const NotificationsView = lazy(() => import('./components/views/NotificationsVie
 const WalletView = lazy(() => import('./components/views/WalletView').then(m => ({ default: m.WalletView })));
 const SettingsView = lazy(() => import('./components/views/SettingsView').then(m => ({ default: m.SettingsView })));
 const AuditLogsView = lazy(() => import('./components/views/AuditLogsView').then(m => ({ default: m.AuditLogsView })));
+const ScarcityMonitor = lazy(() => import('./components/views/ScarcityMonitor').then(m => ({ default: m.ScarcityMonitor })));
 
 const ViewFallback: React.FC = () => (
   <div className="p-8 max-w-7xl mx-auto" role="status" aria-live="polite">
@@ -163,6 +164,9 @@ const AppContent: React.FC = () => {
     sa_content: '/super-admin',
     sa_security: '/super-admin',
     sa_finance: '/super-admin',
+    scarcity_monitoring: '/super-admin',
+    regional_analytics: '/reports/regional',
+    all_users_wholesalers: '/admin',
     reports_regional: '/reports/regional',
     orders: '/orders',
     order_history: '/orders',
@@ -180,7 +184,12 @@ const AppContent: React.FC = () => {
 
   // All Super Admin dashboard tab views share the /super-admin path; a tab
   // view must not be clobbered back to the overview by the URL sync below.
-  const SA_DASHBOARD_VIEWS = ['super_admin_dashboard', 'sa_categories', 'sa_content', 'sa_security', 'sa_finance'];
+  const SA_DASHBOARD_VIEWS = ['super_admin_dashboard', 'sa_categories', 'sa_content', 'sa_security', 'sa_finance', 'scarcity_monitoring'];
+  const SHARED_PATH_VIEWS: Record<string, string[]> = {
+    '/super-admin': SA_DASHBOARD_VIEWS,
+    '/reports/regional': ['reports_regional', 'regional_analytics'],
+    '/admin': ['user_admin_dashboard', 'pending_registrations', 'all_users', 'all_users_wholesalers'],
+  };
 
   // Sync route change with activeView
   useEffect(() => {
@@ -188,6 +197,8 @@ const AppContent: React.FC = () => {
       ? 'orders'
       : pathToViewMap[location.pathname];
     if (matchedView && matchedView !== activeView) {
+      const equivalents = SHARED_PATH_VIEWS[location.pathname];
+      if (equivalents && equivalents.includes(activeView)) return;
       if (matchedView === 'super_admin_dashboard' && SA_DASHBOARD_VIEWS.includes(activeView)) return;
       setActiveView(matchedView);
     }
@@ -284,6 +295,8 @@ const AppContent: React.FC = () => {
       case 'pending_registrations':
       case 'all_users':
         return <UserAdminDashboard />;
+      case 'all_users_wholesalers':
+        return <UserAdminDashboard initialTab="directory" initialRole="wholesaler" />;
       case 'top_user_dashboard':
       case 'regional_hierarchy':
         return <TopUserAdminDashboard />;
@@ -301,6 +314,10 @@ const AppContent: React.FC = () => {
         return <SuperAdminDashboard initialTab="security" />;
       case 'sa_finance':
         return <SuperAdminDashboard initialTab="finance" />;
+      case 'scarcity_monitoring':
+        return <ScarcityMonitor />;
+      case 'regional_analytics':
+        return <RegionalFinancialReportsView initialTab="analytics" />;
       case 'reports_regional':
         return <RegionalFinancialReportsView />;
       case 'orders':

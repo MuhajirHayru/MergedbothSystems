@@ -813,6 +813,8 @@ class PlatformSettingsUpdateSerializer(serializers.Serializer):
     session_timeout_minutes = serializers.IntegerField(
         required=False, min_value=5, max_value=10080
     )
+    scarcity_critical_sellers = serializers.IntegerField(required=False, min_value=0, max_value=10000)
+    scarcity_low_sellers = serializers.IntegerField(required=False, min_value=0, max_value=10000)
     text_messaging_enabled = serializers.BooleanField(required=False)
     voice_messaging_enabled = serializers.BooleanField(required=False)
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)

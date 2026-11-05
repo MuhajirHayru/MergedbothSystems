@@ -834,14 +834,41 @@ class SuperAdminProductCatalogCategoryViewSet(viewsets.ModelViewSet):
             )
 
     def perform_destroy(self, instance):
-        if instance.active:
-            instance.active = False
-            instance.save(update_fields=["active"])
-            self._audit(
-                "product_catalog_category_deactivated",
-                instance,
-                {"active": False},
+        """Delete a catalog category, or refuse with the reason when it is in use.
+
+        A category that still has listings or subcategories is never deleted
+        (the model's PROTECT foreign keys would reject it anyway); the caller
+        receives a 400 explaining that deactivation is the correct workflow.
+        Previously this method only flipped ``active`` to False — a silent
+        no-op masquerading as a delete.
+        """
+        from products.models import Product
+
+        if instance.parent_id is None:
+            listing_count = Product.objects.filter(
+                catalog_product__catalog_category__parent=instance
+            ).count()
+        else:
+            listing_count = Product.objects.filter(
+                catalog_product__catalog_category=instance
+            ).count()
+        children_count = instance.children.count()
+        if listing_count or children_count:
+            raise ValidationError(
+                {
+                    "detail": (
+                        f"'{instance.name_en}' cannot be deleted: "
+                        f"{listing_count} listing(s) and {children_count} "
+                        "subcategory(ies) depend on it. Deactivate it instead."
+                    )
+                }
             )
+        self._audit(
+            "product_catalog_category_deleted",
+            instance,
+            {"slug": instance.slug, "name_en": instance.name_en},
+        )
+        instance.delete()
 
 
 class SuperAdminProductVarietyViewSet(viewsets.ModelViewSet):

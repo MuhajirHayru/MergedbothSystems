@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../services/apiClient';
 import { SuperAdminOverview } from './SuperAdminOverview';
 import { formatApiError } from '../../lib/apiErrors';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { useApp } from '../../context/AppContext';
 import {
   Shield, LayoutDashboard, Globe, Lock, Layers, Wallet, Activity,
@@ -102,10 +103,10 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
   const [savingSecurity, setSavingSecurity] = useState(false);
 
   /* ---------- Categories state ---------- */
-  const [categories, setCategories] = useState<Array<{ id: string; name_en: string }>>([]);
+  const [categories, setCategories] = useState<Array<any>>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
-  const [newCategory, setNewCategory] = useState('');
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [categoryStatusFilter, setCategoryStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [categorySearch, setCategorySearch] = useState('');
 
   /* ---------- System health state (real API — no hardcoded data) ---------- */
   const [health, setHealth] = useState<any>(null);
@@ -246,39 +247,129 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
       .finally(() => setCategoriesLoading(false));
   }, [activeTab, setNotification]);
 
-  const handleAddCategory = async (e: React.FormEvent) => {
+  /* ---------- Category create/edit modal ---------- */
+  const emptyCategoryForm = { name_en: '', name_am: '', name_am_latin: '', description: '', parent: '', sort_order: '0', registration_enabled: true, active: true };
+  const [categoryModal, setCategoryModal] = useState<null | { mode: 'create' | 'edit'; id?: string }>(null);
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
+  const [categoryFieldErrors, setCategoryFieldErrors] = useState<Record<string, string>>({});
+  const [categoryFormError, setCategoryFormError] = useState('');
+  const [categorySaving, setCategorySaving] = useState(false);
+  const categoryPanelRef = useModalA11y<HTMLDivElement>(() => setCategoryModal(null));
+
+  const openCategoryCreate = () => {
+    setCategoryForm(emptyCategoryForm);
+    setCategoryFieldErrors({});
+    setCategoryFormError('');
+    setCategoryModal({ mode: 'create' });
+  };
+
+  const openCategoryEdit = (cat: any) => {
+    setCategoryForm({
+      name_en: cat.name_en ?? '',
+      name_am: cat.name_am ?? '',
+      name_am_latin: cat.name_am_latin ?? '',
+      description: cat.description ?? '',
+      parent: cat.parent ?? '',
+      sort_order: String(cat.sort_order ?? 0),
+      registration_enabled: !!cat.registration_enabled,
+      active: !!cat.active,
+    });
+    setCategoryFieldErrors({});
+    setCategoryFormError('');
+    setCategoryModal({ mode: 'edit', id: cat.id });
+  };
+
+  const submitCategoryForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    const name = newCategory.trim();
-    if (!name || categories.some((category) => category.name_en === name)) return;
+    setCategoryFormError('');
+    setCategoryFieldErrors({});
+    setCategorySaving(true);
+    const name = categoryForm.name_en.trim();
+    const payload: Record<string, unknown> = {
+      name_en: name,
+      slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      name_am: categoryForm.name_am.trim(),
+      name_am_latin: categoryForm.name_am_latin.trim(),
+      description: categoryForm.description.trim(),
+      parent: categoryForm.parent || null,
+      sort_order: Number(categoryForm.sort_order) || 0,
+      registration_enabled: categoryForm.registration_enabled,
+      active: categoryForm.active,
+    };
     try {
-      const response = await api.superadmin.createCatalogCategory({
-        name_en: name,
-        slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-        active: true,
-        registration_enabled: true,
-        sort_order: categories.length,
-      });
-      setCategories((prev) => [...prev, response.data]);
-      setNewCategory('');
-      setNotification?.('Category created in the product catalog.');
-    } catch (err) {
-      setNotification?.(formatApiError(err, 'Category could not be created.'));
+      if (categoryModal?.mode === 'edit' && categoryModal.id) {
+        const response = await api.superadmin.updateCatalogCategory(categoryModal.id, payload);
+        setCategories((prev) => prev.map((row) => (row.id === categoryModal.id ? response.data : row)));
+        setNotification?.(`Category "${payload.name_en}" updated.`);
+      } else {
+        const response = await api.superadmin.createCatalogCategory(payload);
+        setCategories((prev) => [...prev, response.data]);
+        setNotification?.(`Category "${payload.name_en}" created in the product catalog.`);
+      }
+      setCategoryModal(null);
+    } catch (err: any) {
+      const raw = err?.response?.data;
+      // Backend wraps field errors as {success:false, error:{field:[...]}}; also
+      // accept {detail} and DRF-style flat field maps so every rejection is visible.
+      const data = raw?.error && typeof raw.error === 'object' ? raw.error : raw;
+      if (data && typeof data === 'object') {
+        const fieldMessages: Record<string, string> = {};
+        for (const [field, message] of Object.entries(data)) {
+          const text = Array.isArray(message) ? String(message[0]) : typeof message === 'string' ? message : null;
+          if (!text) continue;
+          if (field === 'detail' || field === 'error') setCategoryFormError((prev) => prev || text);
+          else fieldMessages[field] = text;
+        }
+        setCategoryFieldErrors(fieldMessages);
+        if (!Object.keys(fieldMessages).length) {
+          setCategoryFormError((prev) => prev || formatApiError(err, 'Category could not be saved.'));
+        }
+      } else {
+        setCategoryFormError(formatApiError(err, 'Category could not be saved.'));
+      }
+    } finally {
+      setCategorySaving(false);
     }
   };
 
-  const handleRemoveCategory = async (category: { id: string; name_en: string }) => {
-    if (confirmDeleteId !== category.id) {
-      setConfirmDeleteId(category.id);
-      window.setTimeout(() => setConfirmDeleteId((cur) => (cur === category.id ? null : cur)), 4000);
-      return;
-    }
-    setConfirmDeleteId(null);
+  const toggleCategoryActive = async (cat: any) => {
     try {
-      await api.superadmin.deleteCatalogCategory(category.id);
-      setCategories((prev) => prev.filter((row) => row.id !== category.id));
-      setNotification?.('Category removed from the product catalog.');
+      const response = await api.superadmin.updateCatalogCategory(cat.id, { active: !cat.active });
+      setCategories((prev) => prev.map((row) => (row.id === cat.id ? response.data : row)));
+      setNotification?.(`Category "${cat.name_en}" ${cat.active ? 'deactivated' : 'activated'}.`);
     } catch (err) {
-      setNotification?.(formatApiError(err, 'Category could not be removed.'));
+      setNotification?.(formatApiError(err, 'Category status could not be changed.'));
+    }
+  };
+
+  /* ---------- Category delete (real delete or guided deactivate) ---------- */
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<any | null>(null);
+  const [deleteCategoryBusy, setDeleteCategoryBusy] = useState(false);
+  const [deleteCategoryError, setDeleteCategoryError] = useState('');
+  const deletePanelRef = useModalA11y<HTMLDivElement>(() => { setConfirmDeleteCategory(null); setDeleteCategoryError(''); });
+
+  const requestDeleteCategory = (cat: any) => {
+    setDeleteCategoryError('');
+    setConfirmDeleteCategory(cat);
+  };
+
+  const categoryInUse = (cat: any) =>
+    (cat.listing_count ?? 0) > 0 || categories.some((c) => c.parent === cat.id);
+
+  const handleRemoveCategory = async () => {
+    if (!confirmDeleteCategory) return;
+    setDeleteCategoryBusy(true);
+    setDeleteCategoryError('');
+    try {
+      await api.superadmin.deleteCatalogCategory(confirmDeleteCategory.id);
+      setCategories((prev) => prev.filter((row) => row.id !== confirmDeleteCategory.id));
+      setNotification?.(`Category "${confirmDeleteCategory.name_en}" permanently deleted.`);
+      setConfirmDeleteCategory(null);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.response?.data?.error;
+      setDeleteCategoryError(detail || formatApiError(err, 'Category could not be deleted.'));
+    } finally {
+      setDeleteCategoryBusy(false);
     }
   };
 
@@ -475,81 +566,96 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
         {/* ============ TAB: Categories ============ */}
         {activeTab === 'categories' && (
           <div role="tabpanel" id="sa-panel-categories" aria-labelledby="sa-tab-categories">
-            <div className={`${CARD} p-6 space-y-4 max-w-4xl`}>
-              <div className="flex items-center justify-between">
+            <div className={`${CARD} p-6 space-y-4`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className={SECTION_TITLE}>Marketplace Crop Categories Taxonomy</h3>
-                  <p className={SECTION_HINT}>Categories available to farmers when listing produce, and to admins for reporting.</p>
+                  <p className={SECTION_HINT}>Categories available to farmers when listing produce. Deactivated categories disappear from registration but keep their history.</p>
                 </div>
-                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{categories.length} categories</span>
+                <button onClick={openCategoryCreate} className={BTN_PRIMARY}>
+                  <Plus className="w-4 h-4" /> New category
+                </button>
               </div>
 
-              <form onSubmit={handleAddCategory} className="flex gap-2 max-w-md">
-                <label htmlFor="new-category" className="sr-only">New category name</label>
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                 <input
-                  id="new-category"
                   type="text"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  placeholder="e.g., Oilseeds & Sesame"
-                  className={INPUT}
+                  value={categorySearch}
+                  onChange={(e) => setCategorySearch(e.target.value)}
+                  placeholder="Search categories…"
+                  aria-label="Search categories"
+                  className={`${INPUT} max-w-xs`}
                 />
-                <button type="submit" className={BTN_PRIMARY}>
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </form>
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-semibold" role="group" aria-label="Filter by status">
+                  {([['ALL', 'All'], ['ACTIVE', 'Active'], ['INACTIVE', 'Inactive']] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setCategoryStatusFilter(id)}
+                      aria-pressed={categoryStatusFilter === id}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${categoryStatusFilter === id ? 'bg-white dark:bg-slate-900 text-[#15803D] dark:text-emerald-400 shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 sm:ml-auto">{categories.length} categories</span>
+              </div>
 
               {categoriesLoading ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <div key={i} className="h-11 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />
-                  ))}
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-10 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />)}
                 </div>
               ) : categories.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
-                  No categories yet — add the first one above.
+                  No categories yet — create the first one with "New category".
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
-                  {categories.map((cat) => (
-                    <div
-                      key={cat.id}
-                      className={`p-3 rounded-lg border flex items-center justify-between text-xs font-medium transition-colors ${
-                        confirmDeleteId === cat.id
-                          ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="truncate pr-2" title={cat.name_en}>{cat.name_en}</span>
-                      {confirmDeleteId === cat.id ? (
-                        <span className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => handleRemoveCategory(cat)}
-                            className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-bold"
-                            aria-label={`Confirm deleting ${cat.name_en}`}
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="p-1 rounded text-slate-500 dark:text-slate-400 hover:text-slate-600"
-                            aria-label={`Cancel deleting ${cat.name_en}`}
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleRemoveCategory(cat)}
-                          className="text-slate-500 dark:text-slate-400 hover:text-rose-600 transition-colors shrink-0"
-                          aria-label={`Delete ${cat.name_en}`}
-                          title="Delete category"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/70">
+                      <tr className="text-left text-slate-500 dark:text-slate-300">
+                        <th scope="col" className="py-2.5 px-3 font-semibold">Category</th>
+                        <th scope="col" className="py-2.5 px-3 font-semibold">Type</th>
+                        <th scope="col" className="py-2.5 px-3 text-right font-semibold">Listings</th>
+                        <th scope="col" className="py-2.5 px-3 text-right font-semibold">Order</th>
+                        <th scope="col" className="py-2.5 px-3 font-semibold">Status</th>
+                        <th scope="col" className="py-2.5 px-3 text-right font-semibold">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                      {categories
+                        .filter((cat) => categoryStatusFilter === 'ALL' || (categoryStatusFilter === 'ACTIVE') === cat.active)
+                        .filter((cat) => !categorySearch.trim() || (cat.name_en || '').toLowerCase().includes(categorySearch.trim().toLowerCase()) || (cat.slug || '').includes(categorySearch.trim().toLowerCase()))
+                        .map((cat) => (
+                        <tr key={cat.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                          <td className="py-2.5 px-3">
+                            <div className="font-semibold text-slate-800 dark:text-slate-100">{cat.name_en}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{cat.slug}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                            {cat.parent ? <span>Sub of <b>{cat.parent_name || '—'}</b></span> : 'Main'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-200">{cat.listing_count ?? 0}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-500 dark:text-slate-400">{cat.sort_order}</td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${cat.active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>
+                              {cat.active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            <button onClick={() => openCategoryEdit(cat)} className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label={`Edit ${cat.name_en}`}>Edit</button>
+                            <button onClick={() => toggleCategoryActive(cat)} className="px-2 py-1 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30" aria-label={`${cat.active ? 'Deactivate' : 'Activate'} ${cat.name_en}`}>
+                              {cat.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button onClick={() => requestDeleteCategory(cat)} className="px-2 py-1 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30" aria-label={`Delete ${cat.name_en}`}>Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {categories.filter((cat) => categoryStatusFilter === 'ALL' || (categoryStatusFilter === 'ACTIVE') === cat.active).filter((cat) => !categorySearch.trim() || (cat.name_en || '').toLowerCase().includes(categorySearch.trim().toLowerCase()) || (cat.slug || '').includes(categorySearch.trim().toLowerCase())).length === 0 && (
+                        <tr><td colSpan={6} className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">No categories match the current search and filter.</td></tr>
                       )}
-                    </div>
-                  ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
@@ -842,6 +948,111 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
           </div>
         )}
       </div>
+
+      {/* ============ Category create/edit modal ============ */}
+      {categoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div ref={categoryPanelRef} tabIndex={-1} className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl my-8" role="dialog" aria-modal="true" aria-label={categoryModal.mode === 'edit' ? 'Edit category' : 'New category'}>
+            <form onSubmit={submitCategoryForm} className="p-6 space-y-4">
+              <div>
+                <h3 className={SECTION_TITLE}>{categoryModal.mode === 'edit' ? 'Edit category' : 'New category'}</h3>
+                <p className={SECTION_HINT}>Categories support one level of subcategories; only main categories can be enabled at registration.</p>
+              </div>
+              {categoryFormError && <div role="alert" className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{categoryFormError}</div>}
+
+              <div>
+                <label htmlFor="cat-name" className={LABEL}>Name (English) <span className="text-rose-500">*</span></label>
+                <input id="cat-name" required value={categoryForm.name_en} onChange={(e) => setCategoryForm({ ...categoryForm, name_en: e.target.value })} className={INPUT} aria-invalid={!!categoryFieldErrors.name_en} />
+                {categoryFieldErrors.name_en && <p className="text-[11px] text-rose-600 mt-1">{categoryFieldErrors.name_en}</p>}
+                {categoryFieldErrors.slug && <p className="text-[11px] text-rose-600 mt-1">{categoryFieldErrors.slug}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cat-name-am" className={LABEL}>Name (Amharic)</label>
+                  <input id="cat-name-am" value={categoryForm.name_am} onChange={(e) => setCategoryForm({ ...categoryForm, name_am: e.target.value })} className={INPUT} />
+                </div>
+                <div>
+                  <label htmlFor="cat-name-om" className={LABEL}>Name (Afaan Oromoo)</label>
+                  <input id="cat-name-om" value={categoryForm.name_am_latin} onChange={(e) => setCategoryForm({ ...categoryForm, name_am_latin: e.target.value })} className={INPUT} />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="cat-desc" className={LABEL}>Description</label>
+                <textarea id="cat-desc" rows={2} value={categoryForm.description} onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })} className={INPUT} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cat-parent" className={LABEL}>Parent category</label>
+                  <select id="cat-parent" value={categoryForm.parent} onChange={(e) => setCategoryForm({ ...categoryForm, parent: e.target.value })} className={INPUT}>
+                    <option value="">None — main category</option>
+                    {categories.filter((c) => !c.parent && (!categoryModal?.id || c.id !== categoryModal.id)).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name_en}</option>
+                    ))}
+                  </select>
+                  {categoryFieldErrors.parent && <p className="text-[11px] text-rose-600 mt-1">{categoryFieldErrors.parent}</p>}
+                </div>
+                <div>
+                  <label htmlFor="cat-order" className={LABEL}>Display order</label>
+                  <input id="cat-order" type="number" min={0} value={categoryForm.sort_order} onChange={(e) => setCategoryForm({ ...categoryForm, sort_order: e.target.value })} className={`${INPUT} font-mono`} />
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  <input type="checkbox" checked={categoryForm.registration_enabled} onChange={(e) => setCategoryForm({ ...categoryForm, registration_enabled: e.target.checked })} disabled={!!categoryForm.parent} />
+                  Available at registration
+                </label>
+                {categoryModal.mode === 'edit' && (
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    <input type="checkbox" checked={categoryForm.active} onChange={(e) => setCategoryForm({ ...categoryForm, active: e.target.checked })} />
+                    Active
+                  </label>
+                )}
+                {categoryFieldErrors.registration_enabled && <p className="text-[11px] text-rose-600">{categoryFieldErrors.registration_enabled}</p>}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setCategoryModal(null)} className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+                <button type="submit" disabled={categorySaving} className={BTN_PRIMARY}>
+                  <Save className="w-4 h-4" /> {categorySaving ? 'Saving…' : categoryModal.mode === 'edit' ? 'Save changes' : 'Create category'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============ Category delete confirmation ============ */}
+      {confirmDeleteCategory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div ref={deletePanelRef} tabIndex={-1} className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-6 space-y-4" role="dialog" aria-modal="true" aria-label="Delete category">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete &quot;{confirmDeleteCategory.name_en}&quot;?</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {categoryInUse(confirmDeleteCategory)
+                  ? `This category is in use (${confirmDeleteCategory.listing_count ?? 0} listing(s) and/or subcategories), so deletion will be refused by the platform — deactivate it instead to remove it from farmer registration while keeping its history.`
+                  : 'This permanently removes the category from the product catalog. This cannot be undone.'}
+              </p>
+            </div>
+            {deleteCategoryError && <div role="alert" className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{deleteCategoryError}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setConfirmDeleteCategory(null); setDeleteCategoryError(''); }} className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+              {categoryInUse(confirmDeleteCategory) ? (
+                <button onClick={() => { setConfirmDeleteCategory(null); void toggleCategoryActive(confirmDeleteCategory); }} className={BTN_PRIMARY}>
+                  Deactivate instead
+                </button>
+              ) : (
+                <button onClick={() => void handleRemoveCategory()} disabled={deleteCategoryBusy} className={BTN_DANGER}>
+                  {deleteCategoryBusy ? 'Deleting…' : 'Delete permanently'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

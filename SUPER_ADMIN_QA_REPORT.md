@@ -204,3 +204,150 @@ Bonus fix discovered during verification: the dev-server proxy forwarded `/admin
 | Accessibility | READY WITH LIMITATIONS (round 2 fixes verified; screen-reader matrix pending) |
 | Responsive layouts | VERIFIED READY (round 2, section O) |
 | Frontend performance | VERIFIED READY (round 2, section P) |
+
+## S. Round 3 — product-category repair and every-button re-audit
+
+Trigger: the platform owner reported add/delete category "not working". Root-caused end to end (model → serializer → viewset → URL → apiClient → handler → browser → database).
+
+### S.1 Root-cause analysis
+
+1. **Delete was a silent no-op.** `SuperAdminProductCatalogCategoryViewSet.perform_destroy` never deleted: it flipped `active` to False (and did *nothing at all* for already-inactive rows) while returning **HTTP 204**. The UI removed the row locally and refetched — and the category reappeared, because the list returns inactive rows and the UI displayed no status. Reproduced live: DELETE → 204 → row still in DB with `active=False` and only a `..._deactivated` audit row.
+2. **Add failed silently on duplicates.** The old inline form pre-checked duplicates client-side and **silently returned** (button appears dead). When it did submit, rejections came back as the backend envelope `{success:false, error:{field:[...]}}` and the frontend error parser only understood flat maps — so the 400 was displayed **nowhere**. Reproduced live: 400 "slug already exists" invisible to the user.
+3. **Capability mismatch.** The model supports hierarchy (parent), descriptions, Amharic/Oromo names, display order, activation and per-category listing counts — the UI exposed only a single name field, so most of the taxonomy was unmanageable.
+
+### S.2 Fixes
+
+- **Backend** (`registrations/views.py`): `perform_destroy` now deletes for real when the category is unused (listings + subcategories checked), and refuses with **400 + plain-language reason** ("'X' cannot be deleted: N listing(s) and M subcategory(ies) depend on it. Deactivate it instead.") when in use — never bypassing the model's PROTECT foreign keys. Writes a `product_catalog_category_deleted` audit row on success.
+- **Frontend** (`SuperAdminDashboard.tsx`): the categories tab is now a management table — Category (name + slug), Type (Main / Sub of X), **Listings count**, Order, **Active/Inactive pill**, and row actions (Edit / Activate–Deactivate / Delete); search + status filter; loading/empty states.
+- **Create/Edit modal** with every model field (English/Amharic/Oromo names, description, parent select, display order, registration toggle, active toggle on edit), required indicators, and **backend field errors rendered inline** (nested `{error:{field}}` envelope now unwrapped; `detail` mapped to the form banner). Escape/focus via the shared `useModalA11y` hook.
+- **Delete confirmation dialog** that names the category, explains the consequence, **hides "Delete permanently" and offers "Deactivate instead" for in-use categories** (listings or children), and surfaces the backend refusal text if it still fails.
+
+### S.3 Category end-to-end test evidence (executed this round)
+
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| 2 | Add "QA Oilseeds Test" via modal | PASS | 201; toast; DB row with description; `..._created` audit |
+| 4 | Refresh persistence | PASS | Row present after reload (edit found it) |
+| 5–6 | Rename → save | PASS | PATCH 200; DB `name_en` updated; `..._updated` audit with before/after |
+| 7–8 | Activate/deactivate toggle | PASS | DB `active` True→False→True; two `..._updated` audit rows with previous/new |
+| 9 | Duplicate add | PASS | 400 `slug already exists` **shown inline**; modal stays open; no row created |
+| 11–12 | Delete in-use ("Vegetables", 5 listings, 7 children) | PASS | UI dialog refuses + offers Deactivate; direct API DELETE → **400** with the exact reason |
+| 13–14 | Delete eligible QA category | PASS | 204 → row **gone from DB**; `product_catalog_category_deleted` audit; removed from UI |
+| 15 | Persistence after delete | PASS | DB count excludes the deleted row |
+| 16 | Unauthorized API (USER_ADMIN; anonymous) | PASS | 403 on list/create/delete; 401 anonymous |
+
+### S.4 Every-button matrix (all SA screens — statuses across rounds 1–3)
+
+| Screen | Controls | Status |
+|---|---|---|
+| Categories | New/Edit/Delete/Toggle/Search/Filter | BROKEN — FIXED AND RETESTED (all six flows above) |
+| Users & Staff | Approve; Inspect modal | VERIFIED WORKING (DB + audit) |
+| Users & Staff | Reject | NOT TESTED this round (refusing a real applicant is destructive; endpoint + audit covered by backend suite) |
+| Staff Management | Create / Suspend / Activate / Edit / scope | VERIFIED WORKING (DB + audit) |
+| Account Controls | Suspend/Reinstate/Deactivate/Activate + reason enforcement + emergency switches | VERIFIED WORKING (DB + audit; negative test passed) |
+| Discounts | Create/Edit modal; bulk Activate/Deactivate + confirm | VERIFIED WORKING (DB + audit) |
+| Regional Reports | Period selector (30d/90d/12m/All); CSV; Print | VERIFIED WORKING (statistics API; dated CSV download) |
+| Financial Controls | Draft save/approve; delivery pricing create/deactivate | VERIFIED WORKING (round 1; JSON validation gate) |
+| CMS | Save & publish | VERIFIED WORKING (endpoint live; landing reflects content) |
+| Security | Save (incl. session timeout) | VERIFIED WORKING (60→90→60 round-trip persisted) |
+| Audit Logs | Export CSV; filters | VERIFIED WORKING |
+| Support | Reply/assign/urgent/close/bulk | VERIFIED WORKING (round 1, real ticket) |
+| Logistics | Tracking timelines | VERIFIED WORKING |
+| Freight Bidding | Assign/Cancel | NOT TESTED this round (no open freight jobs existed; endpoints covered by backend tests) |
+| Messaging Oversight | Reason-gated open | VERIFIED WORKING |
+| Banners | Create/reorder/toggle/delete | VERIFIED WORKING (round 1) |
+| Platform Operations | Broadcast; order/wallet oversight | VERIFIED WORKING (round 1) |
+| Settings | Password change; preference toggles | VERIFIED WORKING (re-login with new password) |
+| AI Advisor | Groq-backed chat | NOT TESTED (external API dependency) |
+| Payment releases / payouts | — | NOT SAFE TO TEST (real funds; maker-checker + Chapa test-mode boundaries preserved) |
+
+### S.5 Regression and build status (this round)
+
+`tsc --noEmit` exit 0 · production build ✓ (26.5s) · backend suite **559 passed / 3 skipped**, coverage **81.71%** · no commit made (per instruction).
+
+### S.6 Classification
+
+Product-category management: **VERIFIED READY** (all add/edit/delete/toggle flows proven against the database). Every other previously verified screen: **VERIFIED READY** unchanged. Items marked NOT TESTED above are documented with reasons — none block release.
+
+## T. Round 4 — command-centre reorganization, intelligence endpoints, navigation repair
+
+Trigger: the platform owner asked for one organized command centre — a compact grouped sidebar, exact destinations for every control, regional/status intelligence, scarcity monitoring, message insights and approval accountability.
+
+### T.1 Backend (reused + new)
+
+- **Extended `GET /superadmin/statistics/`** (existing endpoint, no duplicates): every regional row now carries `staffCount`, `approvedCount`, `pendingCount`, `suspendedCount`; new `administrative` section with **approvals/rejections by actor** (from real `user_approved`/`user_rejected` audit rows), **pending-by-region**, and an explicit note that pre-audit approvals are not attributable (no fabricated history).
+- **New `GET /superadmin/messaging-insights/`** (`users/superadmin_messaging_insights.py`, Super-Admin-only): conversation/message totals, unread, voice, moderation breakdown, active-conversations-7d, today/7d/30d activity, 14-day trend (timezone-correct — TruncDate buckets in Africa/Addis_Ababa, label loop aligned), top senders by role. **Privacy: counts only — verified no message bodies in the payload.** Delivery-failure metrics are honestly listed under `unavailable` (not tracked by the chat model).
+- Tests: `tests/test_superadmin_intelligence.py` — 7 tests (401/403/200, accurate counts incl. backdated messages, unread/moderation, privacy, regional status counts, accountability). Full suite: **566 passed / 3 skipped, coverage 81.79%**.
+
+### T.2 Sidebar reorganization (10 collapsible groups)
+
+Executive Overview · Users, Staff & Access · Marketplace · Geography & Intelligence · Orders, Logistics & Delivery · Finance & Wallet Oversight · Messages & Support · Content & Presentation · Governance & Security · Workspace. Group headers are buttons with `aria-expanded` and chevrons; state persists in localStorage; the group owning the active view auto-expands via effect; new entries: **Command Centre, System Health & Operations, Verified Wholesalers (pre-filtered directory), Scarcity Monitoring, Regional Analytics**.
+
+### T.3 Navigation repairs
+
+- Shared-path view guard extended (`scarcity_monitoring`, `regional_analytics`, `all_users_wholesalers`) — verified that these views no longer bounce back to their parent route.
+- **KPI cards are now working navigation**: Total Users → All Users, Pending → approval queue, GMV/Revenue/Payroll → Regional Reports, Escrow → Wallet Oversight, Freight → Freight Bidding, Support → Support Inbox — with `role="button"`, keyboard activation and aria-labels. Verified live: Total Users and Support Open cards land on their destinations.
+- Regional Reports table gained **% of Platform**, Staff, Approved and Pending columns (real statistics data).
+
+### T.4 New screens
+
+- **Scarcity Monitoring** (`ScarcityMonitor.tsx`): availability classification computed from real product-region records (Critical ≤2, Low ≤5, Moderate ≤10, Sufficient — thresholds editable at runtime by the SA), region filter, two charts (classification pie, low-quantity-by-region bars), full classified table, and the low-quantity watch list. Labels explicitly say **listing/seller availability** — the platform does not track physical inventory.
+- **Message insights strip** inside Messaging Oversight: KPI chips, 14-day trend chart, top senders by role, moderation breakdown — sitting above the existing reason-gated conversation list (unchanged privacy model).
+
+### T.5 Verification evidence (this round)
+
+- Navigation: 10 groups render with `aria-expanded`; collapse hides child entries and re-expands correctly; all five new destinations land on their screens (verified live); Total Users/Support KPI cards navigate correctly.
+- Scarcity: 18 classified rows + 2 charts + threshold inputs rendered from live data.
+- Messaging insights live: `{conversations: 9, messages: 16, unread: 2, active_7d: 3}` with `hasMessageBodies: false`.
+- Category regression: management table intact (19 rows, status pills, New category, edit/delete/toggle flows unchanged).
+- `tsc --noEmit` exit 0 · production build ✓ (26.2s) · backend 566 passed.
+
+### T.6 Files changed in this round (uncommitted — awaiting approval)
+
+Modified: `SUPER_ADMIN_QA_REPORT.md`, `backend/users/superadmin_statistics.py`, `backend/users/superadmin_urls.py`, `backend/registrations/views.py` (category fix from round 3, preserved), `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/components/views/{RegionalFinancialReportsView,SuperAdminDashboard,SuperAdminOverview,SupportPanels,UserAdminDashboard}.tsx`.
+New: `backend/users/superadmin_messaging_insights.py`, `backend/tests/test_superadmin_intelligence.py`, `frontend/src/components/views/ScarcityMonitor.tsx`.
+Deleted: none. Migrations: none required. HEAD unchanged: `235a338`.
+
+### T.7 Remaining limitations
+
+- Screen-reader matrix (NVDA/JAWS) still outstanding; per-account notification preferences still device-level; no commission ledger so revenue stays unavailable; message delivery-failure tracking does not exist; chat participants are not consistently region-linked so per-region message activity is honestly marked unavailable.
+
+## U. Round 5 — requirements-completeness audit (pre-approval verification)
+
+Executed against the live stack with database verification for every PASS. Two gaps found during the audit were **closed in this round** (scarcity-threshold persistence; product-visibility enforcement) rather than reported as partial.
+
+### U.1 Verdicts against the ten requested requirements
+
+| # | Requirement | Verdict | Evidence |
+|---|---|---|---|
+| 1 | Regional drill-down Region → Zone → Wereda → Kebele | **PARTIAL** | Live walk verified: Oromia → **22 zones** → Arsi → **28 weredas** (Sub-administrations cards with per-level user counts). Kebele level: the drill-down mechanism supports it recursively, but the reference dataset contains no kebele children under the weredas tested — **kebele level NOT TESTED against live data** (sparse geographical records, shown separately per spec). |
+| 2 | Regional wallet reports + verified wholesalers to lowest level | **PARTIAL** | Region level PASS: wallet available/held per region from the statistics endpoint — now displayed as table columns (added this round) and included in CSV; verified-wholesaler directory opens pre-filtered (role=wholesaler) with a working region filter. **Zone/wereda-level wallet and wholesaler breakdowns: NOT IMPLEMENTED** (statistics endpoint aggregates wallets at region level only). |
+| 3 | Product visibility enforced in backend discovery | **PASS** (gap closed this round) | The visibility view was previously **read-only**; a PATCH action was added (SA + scoped oversight roles, reason ≥5 chars required, scope check for non-SA, audit `product_visibility_changed`). E2E verified: hide → **200**, listing **disappears from public farmer-listings discovery** (ID no longer in the response), restore → **200**, audit rows written, short-reason → **400**, UI cycle (Hide → notice "is now inactive — marketplace discovery updated" → Publish → "is now active") verified in the browser. |
+| 4 | Content & banners consolidated | **PASS** | Both live under the **Content & Presentation** sidebar group; verified in the sidebar DOM sweep. |
+| 5 | Staff filtering, selection, role distribution, geographic filter | **PASS** | Role filter applied → exactly **5/5 FINANCIAL MANAGER rows** (matches the "Financial Managers 5" stat); status/scope filters + geographic LocationPicker present; stats strip (12 Active, role counts) visible. Row multi-select/select-all exists on the Account Controls screen; the staff table itself is single-record oriented. |
+| 6 | Approval accountability (who/whom/when) | **PASS** | Aggregate: statistics `administrative.by_actor` → Super Admin 13 approvals, Hana Tesfaye 6; pending-by-region list. Per-user: immutable audit row `user_approved` resolves **actor `superadmin@greenpath.et` → target `mekdes.alemu@mail.com` at 2026-11-04T18:57:35Z**. Approvals predating audit logging are honestly flagged as unattributable. |
+| 7 | Messaging insights, privacy, reason-gated inspection | **PASS** | Insights endpoint + strip verified live (9 conversations / 16 messages / 2 unread / 3 active-7d) with **no message bodies in the payload** (tested); conversation content still requires a ≥10-char recorded reason. |
+| 8 | Scarcity thresholds persist in DB and affect reports | **PASS** (gap closed this round) | New `PlatformSettings.scarcity_critical_sellers` / `scarcity_low_sellers` fields (migration `users.0015`), exposed in the settings API (PATCH round-trip verified: 2/5 → 3/6 → revert), and the Scarcity Monitor now **loads and saves** the persisted values, classifying every product/area with them. |
+| 9 | Every sidebar destination / KPI / chart / filter / modal / table / form | **PASS with documented exceptions** | All 10 groups + every destination clicked and rendered (verified live); KPI cards navigate; chart bar-click drill-down works (real mouse click on the Oromia bar); filters/modals/tables exercised across rounds 3–5. NOT TESTED (documented): freight assign/cancel (no open jobs), AI Advisor (external API), payment releases (real funds), kebele drill-down (no reference data). |
+| 10 | Category create/edit/activate/delete fixes preserved | **PASS** | Regression: management table renders (19 rows, Active/Inactive pills), all round-3 flows untouched by later changes; full category E2E evidence in section S.3. |
+
+### U.2 Gaps closed during this audit
+
+1. **Scarcity threshold persistence** — migration `users.0015`, settings API exposure, UI load/save with confirmation; backend round-trip verified (2/5 → 3/6 → revert).
+2. **Product visibility enforcement** — new PATCH action on `/admin/products/` with authorization, scope enforcement, reason requirement, audit logging; marketplace-discovery exclusion proven; a `ProductStatus` import bug caught by the live test (500 → fixed → 200).
+
+### U.3 Final state
+
+- Git HEAD: `235a338` (unchanged). Nothing committed or pushed.
+- Backend: **566 passed / 3 skipped**, coverage **81.62%**; migrations applied incl. `users.0015`.
+- Frontend: `tsc --noEmit` exit 0; production build ✓.
+
+Modified files (cumulative, uncommitted): `SUPER_ADMIN_QA_REPORT.md`, `backend/registrations/views.py`, `backend/users/models.py`, `backend/users/serializers.py`, `backend/users/superadmin_views.py`, `backend/users/oversight_views.py`, `backend/users/superadmin_statistics.py`, `backend/users/superadmin_urls.py`, `backend/users/migrations/0015_scarcity_thresholds.py`, `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/components/views/{RegionalFinancialReportsView,ScarcityMonitor,SuperAdminDashboard,SuperAdminOverview,SupportPanels,UserAdminDashboard}.tsx`, `frontend/src/hooks/useModalA11y.ts` (from round 3).
+New files: `backend/users/superadmin_messaging_insights.py`, `backend/tests/test_superadmin_intelligence.py`, `frontend/src/components/views/ScarcityMonitor.tsx`.
+
+### U.4 Risks
+
+1. Zone/wereda-level wallet and wholesaler aggregation remains future work (region-level is complete).
+2. Kebele reporting depends on reference-data completeness — the drill-down supports it, the dataset is sparse.
+3. `product_visibility_changed` audit rows accumulate per toggle; no retention policy yet.
+4. Threshold persistence is global (one rule set platform-wide); per-category thresholds would need a follow-up model.

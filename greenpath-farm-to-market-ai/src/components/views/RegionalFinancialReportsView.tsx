@@ -35,8 +35,9 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 
-export const RegionalFinancialReportsView: React.FC = () => {
+export const RegionalFinancialReportsView: React.FC<{ initialTab?: 'financial' | 'analytics' }> = ({ initialTab }) => {
   const { regionalMetrics, regionalMetricsStatus, loadRegionalMetrics, setNotification } = useApp();
+  const [scopeTab, setScopeTab] = useState<'financial' | 'analytics'>(initialTab ?? 'financial');
   const [period, setPeriod] = useState<'30d' | '90d' | '365d' | 'all'>('all');
 
   const changePeriod = (next: '30d' | '90d' | '365d' | 'all') => {
@@ -46,7 +47,6 @@ export const RegionalFinancialReportsView: React.FC = () => {
     void loadRegionalMetrics(new Date(Date.now() - days * 86400000).toISOString());
   };
 
-  const [scopeTab, setScopeTab] = useState<'financial' | 'analytics'>('financial');
   const [selectedRegion, setSelectedRegion] = useState<RegionalFinancialMetric | null>(null);
   const [selectedZone, setSelectedZone] = useState<ZoneFinancialMetric | null>(null);
 
@@ -501,6 +501,10 @@ export const RegionalFinancialReportsView: React.FC = () => {
               <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-semibold">
                 <th className="py-3 px-3">Region</th>
                 <th className="py-3 px-2 text-right">Users</th>
+                <th className="py-3 px-2 text-right">% of Platform</th>
+                <th className="py-3 px-2 text-right">Staff</th>
+                <th className="py-3 px-2 text-right">Approved</th>
+                <th className="py-3 px-2 text-right">Pending</th>
                 <th className="py-3 px-2 text-right">Farmers</th>
                 <th className="py-3 px-2 text-right">Wholesalers</th>
                 <th className="py-3 px-2 text-right">Retailers</th>
@@ -530,6 +534,18 @@ export const RegionalFinancialReportsView: React.FC = () => {
                   <td className="py-3 px-2 text-right font-mono text-slate-600 dark:text-slate-400">
                     {r.totalUsers.toLocaleString()}
                   </td>
+                  <td className="py-3 px-2 text-right font-mono text-slate-500 dark:text-slate-400">
+                    {totalUsersCount > 0 ? `${((r.totalUsers / totalUsersCount) * 100).toFixed(1)}%` : '—'}
+                  </td>
+                  <td className="py-3 px-2 text-right font-mono text-slate-600 dark:text-slate-400">
+                    {(r as any).staffCount?.toLocaleString?.() ?? '—'}
+                  </td>
+                  <td className="py-3 px-2 text-right font-mono text-emerald-700 dark:text-emerald-400">
+                    {(r as any).approvedCount?.toLocaleString?.() ?? '—'}
+                  </td>
+                  <td className="py-3 px-2 text-right font-mono text-amber-700 dark:text-amber-400">
+                    {(r as any).pendingCount?.toLocaleString?.() ?? '—'}
+                  </td>
                   <td className="py-3 px-2 text-right font-mono text-slate-600 dark:text-slate-400">
                     {r.farmersCount.toLocaleString()}
                   </td>
@@ -553,6 +569,12 @@ export const RegionalFinancialReportsView: React.FC = () => {
                   </td>
                   <td className="py-3 px-3 text-right font-mono text-purple-700 dark:text-purple-400">
                     {r.payoutValueETB.toLocaleString()}
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
+                    {Number(r.availableWalletETB ?? 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-amber-700 dark:text-amber-400">
+                    {Number(r.heldWalletETB ?? 0).toLocaleString()}
                   </td>
                   <td className="py-3 px-3 text-center">
                     <span className="text-[11px] text-[#15803D] dark:text-emerald-400 font-semibold hover:underline">

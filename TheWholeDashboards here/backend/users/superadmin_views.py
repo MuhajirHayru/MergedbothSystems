@@ -902,6 +902,8 @@ class PlatformSettingsView(APIView):
         "max_failed_login_attempts",
         "lockout_duration_minutes",
         "session_timeout_minutes",
+        "scarcity_critical_sellers",
+        "scarcity_low_sellers",
         "text_messaging_enabled",
         "voice_messaging_enabled",
     )
@@ -922,6 +924,8 @@ class PlatformSettingsView(APIView):
             "max_failed_login_attempts",
             "lockout_duration_minutes",
             "session_timeout_minutes",
+            "scarcity_critical_sellers",
+            "scarcity_low_sellers",
             "text_messaging_enabled",
             "voice_messaging_enabled",
         }
@@ -988,6 +992,8 @@ class PlatformSettingsView(APIView):
             "max_failed_login_attempts": config.max_failed_login_attempts,
             "lockout_duration_minutes": config.lockout_duration_minutes,
             "session_timeout_minutes": config.session_timeout_minutes,
+            "scarcity_critical_sellers": config.scarcity_critical_sellers,
+            "scarcity_low_sellers": config.scarcity_low_sellers,
             "text_messaging_enabled": config.text_messaging_enabled,
             "voice_messaging_enabled": config.voice_messaging_enabled,
             "updated_at": config.updated_at.isoformat() if config.updated_at else None,
