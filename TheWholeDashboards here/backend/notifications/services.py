@@ -33,6 +33,7 @@ def notify(
     message="",
     actor=None,
     target_url="",
+    announcement=None,
 ):
     """Create in-app notifications for specific users or roles.
 
@@ -51,6 +52,7 @@ def notify(
                     message=message,
                     actor=actor,
                     target_url=target_url,
+                    announcement=announcement,
                 )
                 for u in recipients
             ]

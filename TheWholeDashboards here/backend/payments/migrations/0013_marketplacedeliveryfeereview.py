@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
             options={
                 'db_table': 'marketplace_delivery_fee_reviews',
                 'indexes': [models.Index(fields=['decision', 'decided_at'], name='marketplace_decisio_8db149_idx')],
-                'constraints': [models.CheckConstraint(check=models.Q(('proposal_version__gt', 0)), name='marketplace_delivery_fee_review_version_positive'), models.CheckConstraint(check=models.Q(models.Q(('decision', 'approved'), ('rejection_reason', '')), models.Q(('decision', 'rejected'), models.Q(('rejection_reason', ''), _negated=True)), _connector='OR'), name='marketplace_delivery_fee_review_reason_valid')],
+                'constraints': [models.CheckConstraint(condition=models.Q(('proposal_version__gt', 0)), name='marketplace_delivery_fee_review_version_positive'), models.CheckConstraint(condition=models.Q(models.Q(('decision', 'approved'), ('rejection_reason', '')), models.Q(('decision', 'rejected'), models.Q(('rejection_reason', ''), _negated=True)), _connector='OR'), name='marketplace_delivery_fee_review_reason_valid')],
             },
         ),
     ]

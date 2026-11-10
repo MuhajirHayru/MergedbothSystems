@@ -80,6 +80,7 @@ def _user_payload(user):
         "business_name": getattr(registration, "business_name", "") or "",
         "business_address": getattr(registration, "business_address", "") or "",
         "profile_photo": user.profile_photo.url if user.profile_photo else "",
+        "bio": getattr(user, "bio", "") or "",
         "role": user.role,
         "role_display": user.get_role_display(),
         "status": user.status,

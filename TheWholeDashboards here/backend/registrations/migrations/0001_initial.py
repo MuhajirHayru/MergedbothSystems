@@ -195,7 +195,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='administratorscope',
-            constraint=models.CheckConstraint(check=models.Q(models.Q(('level', 'GLOBAL'), ('location__isnull', True)), models.Q(('level', 'LOCATION'), ('location__isnull', False)), _connector='OR'), name='admin_scope_loc_level_ck'),
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('level', 'GLOBAL'), ('location__isnull', True)), models.Q(('level', 'LOCATION'), ('location__isnull', False)), _connector='OR'), name='admin_scope_loc_level_ck'),
         ),
         migrations.AddIndex(
             model_name='userregistration',

@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import generics, permissions, status, views, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -57,10 +57,23 @@ from .services import (
     enqueue_driver_authorization_update,
     manageable_admins_for,
     location_descendant_ids,
+    admin_dashboard_feature_enabled,
     record_registration_decision,
     required_license_types_for_role,
     users_visible_to_admin,
 )
+
+REGISTRATION_ADMIN_ROLES = (
+    Role.USER_ADMIN, Role.TOP_USER_ADMIN, Role.REGIONAL_ADMIN,
+    Role.ZONAL_ADMIN, Role.WEREDA_ADMIN, Role.SUPER_ADMIN,
+)
+
+
+def _require_scoped_admin(request, feature="registration_review"):
+    if request.user.role not in REGISTRATION_ADMIN_ROLES:
+        raise PermissionDenied("Not authorized.")
+    if not admin_dashboard_feature_enabled(request.user, feature):
+        raise PermissionDenied(f"{feature.replace('_', ' ').title()} is disabled for this administrator.")
 
 
 class LocationOptionsView(generics.ListAPIView):
@@ -362,7 +375,8 @@ class RegistrationListView(generics.ListAPIView):
     serializer_class = RegistrationDetailsSerializer
 
     def get_queryset(self):
-        if self.request.user.role not in (Role.USER_ADMIN, Role.SUPER_ADMIN):
+        _require_scoped_admin(self.request, "registration_review")
+        if self.request.user.role not in REGISTRATION_ADMIN_ROLES:
             return UserRegistration.objects.none()
         queryset = _scoped_registrations(self.request.user)
         if not self.request.query_params.get("status"):
@@ -381,7 +395,8 @@ class RegistrationDetailView(generics.RetrieveAPIView):
     lookup_url_kwarg = "registration_id"
 
     def get_queryset(self):
-        if self.request.user.role not in (Role.USER_ADMIN, Role.SUPER_ADMIN):
+        _require_scoped_admin(self.request, "registration_review")
+        if self.request.user.role not in REGISTRATION_ADMIN_ROLES:
             return UserRegistration.objects.none()
         return _scoped_registrations(self.request.user)
 
@@ -390,8 +405,7 @@ class RegistrationDecisionView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, registration_id):
-        if request.user.role not in (Role.USER_ADMIN, Role.SUPER_ADMIN):
-            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        _require_scoped_admin(request, "registration_review")
         registration = get_object_or_404(
             _scoped_registrations(request.user),
             pk=registration_id,
@@ -418,8 +432,7 @@ class RegistrationDocumentAccessView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, document_id):
-        if request.user.role not in (Role.USER_ADMIN, Role.SUPER_ADMIN):
-            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        _require_scoped_admin(request, "registration_review")
         document = get_object_or_404(
             RegistrationDocument.objects.select_related(
                 "registration__user", "registration__location"
@@ -452,8 +465,7 @@ class VerifyRegistrationDocumentView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, document_id):
-        if request.user.role not in (Role.USER_ADMIN, Role.SUPER_ADMIN):
-            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        _require_scoped_admin(request, "registration_review")
         document = get_object_or_404(
             RegistrationDocument.objects.select_related("registration__user"),
             pk=document_id,
@@ -515,8 +527,7 @@ class RegistrationReportView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        if request.user.role not in (Role.USER_ADMIN, Role.SUPER_ADMIN):
-            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        _require_scoped_admin(request, "registration_review")
         queryset = _scoped_registrations(request.user)
         queryset = _filter_registrations(queryset, request.query_params)
         rows = queryset.values("status", "user__role").annotate(total=Count("id"))

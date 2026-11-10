@@ -27,7 +27,7 @@ def _account(code, name, category):
 
 def post_journal_entry(*, reference, category, amount, currency, debit_code, debit_name,
                         debit_category, credit_code, credit_name, credit_category,
-                        source, source_reference, actor, description="", related_user=None, configuration=None, order_reference="", location=None, status=FinancialJournalEntry.Status.POSTED, reverses=None):
+                        source, source_reference, actor, description="", related_user=None, configuration=None, order_reference="", location=None, status=FinancialJournalEntry.Status.POSTED, reverses=None, revenue_method="", payer_party="", payer_user=None):
     amount = Decimal(amount).quantize(Decimal("0.01"))
     existing = FinancialJournalEntry.objects.filter(idempotency_key=reference).first()
     if existing:
@@ -57,38 +57,266 @@ def post_journal_entry(*, reference, category, amount, currency, debit_code, deb
         related_user=related_user,
         status=status,
         reverses=reverses,
+        revenue_method=revenue_method or "",
+        payer_party=payer_party or "",
+        payer_user=payer_user,
     )
 
 
 def _active_configuration(kind, effective_at):
     return FinancialConfiguration.objects.filter(
         kind=kind,
-        status=FinancialConfiguration.Status.APPROVED,
+        # A rule must have been approved when the transaction occurred.
+        # Keep superseded versions eligible for events inside their original
+        # effective window so later approvals cannot rewrite history.
+        status__in=(
+            FinancialConfiguration.Status.APPROVED,
+            FinancialConfiguration.Status.SUPERSEDED,
+        ),
+        approved_at__isnull=False,
+        approved_at__lte=effective_at,
         effective_from__lte=effective_at,
     ).filter(
         models.Q(effective_to__isnull=True) | models.Q(effective_to__gt=effective_at)
-    ).order_by("-version").first()
+    ).order_by("-effective_from", "-version").first()
 
 
-def _matching_commission_rule(configuration, *, seller_role, product_type, region_id):
+def _rule_scope_matches(candidate: dict, *, seller_role, buyer_role, product_type, region_id, quantity, value) -> bool:
+    """Scope match for one revenue-rule candidate against a transaction."""
+    if not candidate.get("enabled", True):
+        return False
+    if candidate.get("seller_role", "*") not in ("*", seller_role):
+        return False
+    if candidate.get("buyer_role", "*") not in ("*", buyer_role):
+        return False
+    if candidate.get("product_type", "*") not in ("*", product_type):
+        return False
+    candidate_region = candidate.get("region_id")
+    if candidate_region not in (None, "*") and str(candidate_region) != str(region_id):
+        return False
+    quantity = Decimal(str(quantity or 0))
+    value = Decimal(str(value or 0))
+    min_q = candidate.get("min_quantity")
+    if min_q not in (None, "", "*") and quantity < Decimal(str(min_q)):
+        return False
+    max_q = candidate.get("max_quantity")
+    if max_q not in (None, "", "*") and quantity > Decimal(str(max_q)):
+        return False
+    min_v = candidate.get("min_value")
+    if min_v not in (None, "", "*") and value < Decimal(str(min_v)):
+        return False
+    max_v = candidate.get("max_value")
+    if max_v not in (None, "", "*") and value > Decimal(str(max_v)):
+        return False
+    return True
+
+
+def _rule_specificity(candidate: dict) -> int:
+    """Higher = more specific. Priority (explicit) breaks ties first."""
+    score = 0
+    if candidate.get("product_type", "*") != "*":
+        score += 8
+    if candidate.get("region_id") not in (None, "*", ""):
+        score += 4
+    if candidate.get("seller_role", "*") != "*":
+        score += 2
+    if candidate.get("buyer_role", "*") != "*":
+        score += 2
+    if candidate.get("min_quantity") not in (None, "", "*") or candidate.get("max_quantity") not in (None, "", "*"):
+        score += 1
+    return score
+
+
+def _matching_commission_rule(configuration, *, seller_role, buyer_role, product_type, region_id, quantity, value):
+    """Select the applicable revenue rule.
+
+    Priority: explicit ``priority`` field first (higher wins), then rule
+    specificity (product > region > roles > quantity range). Overlapping rules
+    never combine — exactly one rule wins and its full definition is returned
+    so the settlement can name every applied term.
+    """
     if not configuration:
         return None
     rules = configuration.rules
     candidates = rules.get("rules", []) if isinstance(rules, dict) else []
     if not isinstance(candidates, list):
         return None
-    for candidate in candidates:
-        if not isinstance(candidate, dict):
-            continue
-        if candidate.get("seller_role", "*") not in ("*", seller_role):
-            continue
-        if candidate.get("product_type", "*") not in ("*", product_type):
-            continue
-        candidate_region = candidate.get("region_id")
-        if candidate_region not in (None, "*") and str(candidate_region) != str(region_id):
-            continue
-        return candidate
-    return None
+    matching = [
+        c for c in candidates
+        if isinstance(c, dict) and _rule_scope_matches(
+            c, seller_role=seller_role, buyer_role=buyer_role,
+            product_type=product_type, region_id=region_id,
+            quantity=quantity, value=value,
+        )
+    ]
+    if not matching:
+        return None
+    matching.sort(
+        key=lambda c: (
+            -int(c.get("priority", 0) or 0),
+            -_rule_specificity(c),
+            str(c.get("rule_id", "")),
+        )
+    )
+    return matching[0]
+
+
+def _rule_commission_amount(rule: dict, gross: Decimal, quantity: Decimal) -> Decimal:
+    """Compute the platform commission for one matched rule.
+
+    calculation: 'percentage' (rate × gross) | 'fixed' | 'per_unit'
+    (unit_fee × quantity in quintals). Min/max commission caps
+    clamp the result; the commission can never exceed the gross value.
+    """
+    calculation = (rule.get("calculation") or "percentage").lower()
+    rate = Decimal(str(rule.get("rate", "0") or 0))
+    fixed = Decimal(str(rule.get("fixed_fee", "0") or 0))
+    unit_fee = Decimal(str(rule.get("unit_fee", "0") or 0))
+    if calculation == "percentage":
+        commission = gross * rate + fixed
+    elif calculation == "per_unit":
+        commission = quantity * unit_fee + fixed
+    elif calculation == "fixed":
+        commission = fixed
+    else:
+        raise ValueError(f"Unknown commission calculation method: {calculation}")
+    min_commission = rule.get("min_commission")
+    if min_commission not in (None, "", "*") and commission < Decimal(str(min_commission)):
+        commission = Decimal(str(min_commission))
+    max_commission = rule.get("max_commission")
+    if max_commission not in (None, "", "*") and commission > Decimal(str(max_commission)):
+        commission = Decimal(str(max_commission))
+    return commission.quantize(Decimal("0.01"))
+
+
+def _rule_buyer_fee_amount(rule: dict, gross: Decimal, quantity: Decimal) -> Decimal:
+    """Buyer service fee from the same rule (separately identified)."""
+    calculation = (rule.get("buyer_fee_calculation") or "none").lower()
+    if calculation == "none":
+        return Decimal("0.00")
+    rate = Decimal(str(rule.get("buyer_fee_rate", "0") or 0))
+    fixed = Decimal(str(rule.get("buyer_fee_fixed", "0") or 0))
+    unit_fee = Decimal(str(rule.get("buyer_fee_unit_fee", "0") or 0))
+    if calculation == "percentage":
+        fee = gross * rate + fixed
+    elif calculation == "per_unit":
+        fee = quantity * unit_fee + fixed
+    else:
+        fee = fixed
+    return fee.quantize(Decimal("0.01"))
+
+
+def build_agreement_financial_terms_snapshot(order, *, agreement, at=None):
+    """Freeze the approved rule, payer and exact fee amounts at acceptance."""
+    from .financial_models import RevenueMethod
+    from .revenue_engine import active_methods, plan_order_charges, quintals, transaction_type_for
+
+    at = at or agreement.activated_at
+    seller, buyer = order.seller, order.buyer
+    gross = Decimal(str(order.total_amount or 0))
+    quantity = Decimal(str(order.quantity or 0))
+    quantity_q = quintals(quantity, getattr(order.product, "unit_of_measure", ""))
+    location = None
+    shipment = getattr(order, "shipment_details", None)
+    if shipment:
+        location = shipment.pickup_wereda or shipment.pickup_zone or shipment.pickup_region
+    region_id = getattr(location, "pk", None) or getattr(
+        getattr(seller, "administrative_location", None), "pk", None
+    )
+    commission_config = _active_configuration(FinancialConfiguration.Kind.COMMISSION, at)
+    tax_config = _active_configuration(FinancialConfiguration.Kind.TAX, at)
+    methods = active_methods(transaction_type_for(order), at=at)
+    commission_rule = _matching_commission_rule(
+        commission_config,
+        seller_role=seller.role,
+        buyer_role=buyer.role if buyer else None,
+        product_type=order.product.product_type,
+        region_id=region_id,
+        quantity=quantity,
+        value=gross,
+    )
+    tax_rule = _matching_commission_rule(
+        tax_config,
+        seller_role=seller.role,
+        buyer_role=buyer.role if buyer else None,
+        product_type=order.product.product_type,
+        region_id=region_id,
+        quantity=quantity,
+        value=gross,
+    ) if tax_config else None
+
+    commission = Decimal("0.00")
+    buyer_fee = Decimal("0.00")
+    if commission_rule:
+        if RevenueMethod.Method.SELLER_COMMISSION in methods:
+            commission = _rule_commission_amount(commission_rule, gross, quantity_q)
+        if RevenueMethod.Method.BUYER_COMMISSION in methods:
+            buyer_fee = _rule_buyer_fee_amount(commission_rule, gross, quantity_q)
+    tax_amount = Decimal("0.00") if commission <= 0 else None
+    if commission > 0 and tax_rule:
+        rate = Decimal(str(tax_rule.get("rate", "0") or 0))
+        if rate < 0 or rate > 1:
+            raise ValueError("Tax rate must be between 0 and 1.")
+        tax_amount = (commission * rate).quantize(Decimal("0.01"))
+
+    preview = FinancialOrderSnapshot(
+        order=order, gross_order_value=gross,
+        commission_amount=commission, buyer_fee_amount=buyer_fee,
+    )
+    planned = plan_order_charges(order, snapshot=preview, at=at)
+    fee_lines = [
+        {
+            "revenue_method_id": str(item["rule"].pk),
+            "method": item["method"],
+            "transaction_type": item["rule"].transaction_type,
+            "payer_party": item["payer_party"],
+            "payer_user_id": str(item["payer_user"].pk),
+            "payer_name": item["payer_user"].full_name,
+            "amount": str(item["amount"]),
+            "company_share_percentage": str(item["rule"].company_share_percentage),
+            "agreement_reference": item["agreement_reference"],
+        }
+        for item in planned
+    ]
+    from .revenue_engine import commission_payer
+
+    commission_party, commission_user = commission_payer(
+        order, RevenueMethod.Method.SELLER_COMMISSION, at=at
+    )
+    tax_payer = str((tax_rule or {}).get("fee_payer", "") or "").lower()
+    tax_payer_choices = {
+        "seller": (RevenueMethod.Payer.SELLER, seller),
+        "buyer": (RevenueMethod.Payer.BUYER, buyer),
+        "requesting_party": (RevenueMethod.Payer.REQUESTING_PARTY, buyer),
+        "contractual_party": (RevenueMethod.Payer.CONTRACTUAL_PARTY, agreement.contractual_payer),
+    }
+    tax_party, tax_user = tax_payer_choices.get(
+        tax_payer, (commission_party or RevenueMethod.Payer.SELLER, commission_user or seller)
+    )
+    issues = []
+    if commission > 0 and tax_amount is None:
+        issues.append("Tax treatment is unresolved; no tax will be collected until an applicable approved rule exists.")
+    return {
+        "status": "INCOMPLETE" if issues else "READY",
+        "currency": "ETB",
+        "effective_at": at.isoformat(),
+        "gross_order_value": str(gross),
+        "quantity": str(quantity),
+        "quantity_unit": getattr(order.product, "unit_of_measure", ""),
+        "quantity_quintals": str(quantity_q),
+        "commission_configuration_id": str(commission_config.pk) if commission_config else None,
+        "commission_rule": commission_rule,
+        "commission_amount": str(commission),
+        "buyer_fee_amount": str(buyer_fee),
+        "tax_configuration_id": str(tax_config.pk) if tax_config else None,
+        "tax_rule": tax_rule,
+        "tax_amount": str(tax_amount) if tax_amount is not None else None,
+        "tax_payer_party": str(tax_party or ""),
+        "tax_payer_user_id": str(tax_user.pk) if tax_user else None,
+        "tax_payer_name": tax_user.full_name if tax_user else None,
+        "fee_lines": fee_lines,
+        "issues": issues,
+    }
 
 
 @transaction.atomic
@@ -105,48 +333,106 @@ def post_completed_order(order, *, actor, gross_override=None):
         return snapshot
     seller = locked.seller
     seller_role = seller.role
-    if locked.product.product_type == ProductType.FARMER_LISTING:
-        region_id = getattr(getattr(seller, "administrative_location", None), "id", None)
-    else:
-        region_id = getattr(getattr(seller, "administrative_location", None), "id", None)
+    region_id = getattr(getattr(seller, "administrative_location", None), "id", None)
     location = None
     shipment = getattr(locked, "shipment_details", None)
     if shipment is not None:
         location = shipment.pickup_wereda or shipment.pickup_zone or shipment.pickup_region
     if region_id is None and location is not None:
-        region_id = location_id = location.pk
-    else:
-        location_id = region_id
+        region_id = location.pk
     effective_gross = locked.total_amount if gross_override is None else Decimal(str(gross_override))
-    effective_at = locked.quality_confirmed_at or locked.updated_at
+    agreement = getattr(locked, "agreement", None)
+    # Use the accepted agreement's effective time so later rule changes do not
+    # change the price basis for an order the participants already accepted.
+    effective_at = getattr(agreement, "activated_at", None) or locked.quality_confirmed_at or locked.updated_at
+    agreement_terms = getattr(agreement, "financial_terms_snapshot", None) or {}
+    if agreement_terms and gross_override is None:
+        effective_gross = Decimal(str(agreement_terms.get("gross_order_value", effective_gross)))
+    buyer = locked.buyer
+    buyer_role = buyer.role if buyer else None
+    order_quantity = Decimal(str(locked.quantity or 0))
+    from .revenue_engine import quintals
+    quantity_in_quintals = quintals(order_quantity, locked.product.unit_of_measure)
     configuration = _active_configuration(FinancialConfiguration.Kind.COMMISSION, effective_at)
+    if agreement_terms.get("commission_configuration_id"):
+        configuration = FinancialConfiguration.objects.filter(
+            pk=agreement_terms["commission_configuration_id"]
+        ).first()
+    from .revenue_engine import active_methods, transaction_type_for
+    from .financial_models import RevenueMethod
+
+    configured_methods = active_methods(transaction_type_for(locked), at=effective_at)
     rule = _matching_commission_rule(
-        configuration, seller_role=seller_role,
+        configuration, seller_role=seller_role, buyer_role=buyer_role,
         product_type=locked.product.product_type, region_id=region_id,
+        quantity=order_quantity, value=effective_gross,
     )
-    if not rule:
-        return FinancialOrderSnapshot.objects.create(
+    if agreement_terms:
+        rule = agreement_terms.get("commission_rule")
+    if not rule and not agreement_terms:
+        from .revenue_engine import apply_order_revenue_methods, plan_order_charges
+
+        preview = FinancialOrderSnapshot(
             order=locked, gross_order_value=effective_gross,
-            seller_role=seller_role, seller_user=seller,
-            seller_proceeds=effective_gross,
-            currency="ETB", status=FinancialOrderSnapshot.Status.TAX_UNRESOLVED,
+            commission_amount=Decimal("0.00"), buyer_fee_amount=Decimal("0.00"),
         )
+        charge_plan = plan_order_charges(locked, snapshot=preview, at=effective_at)
+        seller_fees = sum((item["amount"] for item in charge_plan if item["payer_user"] == seller), Decimal("0.00"))
+        snapshot = FinancialOrderSnapshot.objects.create(
+            order=locked, configuration=configuration,
+            gross_order_value=effective_gross,
+            seller_role=seller_role, seller_user=seller,
+            seller_proceeds=max(Decimal("0.00"), effective_gross - seller_fees),
+            # If no approved commission configuration existed at acceptance,
+            # no commission was authorized and there is no commission tax
+            # base. A present configuration with no matching rule remains
+            # unresolved and must be reviewed.
+            tax_amount=Decimal("0.00") if configuration is None else None,
+            currency="ETB",
+            status=(FinancialOrderSnapshot.Status.SETTLED if configuration is None
+                    else FinancialOrderSnapshot.Status.TAX_UNRESOLVED),
+        )
+        # Configured revenue methods still apply when no commission rule wins.
+        apply_order_revenue_methods(locked, actor=actor, at=effective_at)
+        from .inventory_services import settle_order_inventory
+
+        settle_order_inventory(locked)
+        return snapshot
     try:
-        rate = Decimal(str(rule.get("rate", "0")))
-        fixed = Decimal(str(rule.get("fixed_fee", "0")))
+        rate = Decimal(str((rule or {}).get("rate", "0") or 0))
+        fixed = Decimal(str((rule or {}).get("fixed_fee", "0") or 0))
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise ValueError("Commission rule rate and fixed_fee must be decimal strings.") from exc
     if rate < 0 or rate > 1 or fixed < 0:
         raise ValueError("Commission rule rate must be between 0 and 1 and fixed_fee nonnegative.")
-    commission = (effective_gross * rate + fixed).quantize(Decimal("0.01"))
+    commission = Decimal(str(agreement_terms["commission_amount"])) if agreement_terms else _rule_commission_amount(rule, effective_gross, quantity_in_quintals)
+    # The approved commission calculation is not, by itself, permission to
+    # charge. Revenue Methods must enable each commission stream and assign a
+    # payer; this also ensures every fee has a matching agreement snapshot.
+    if not agreement_terms and RevenueMethod.Method.SELLER_COMMISSION not in configured_methods:
+        commission = Decimal("0.00")
     if commission > effective_gross:
         raise ValueError("Commission cannot exceed gross order value.")
+    buyer_fee = Decimal(str(agreement_terms.get("buyer_fee_amount", "0"))) if agreement_terms else _rule_buyer_fee_amount(rule or {}, effective_gross, quantity_in_quintals)
+    if not agreement_terms and RevenueMethod.Method.BUYER_COMMISSION not in configured_methods:
+        buyer_fee = Decimal("0.00")
+    # active_methods already excludes methods whose Super Admin source switch
+    # is disabled, so disabled commission streams cannot reach this point.
     tax_configuration = _active_configuration(FinancialConfiguration.Kind.TAX, effective_at)
-    tax_amount = None
+    if agreement_terms.get("tax_configuration_id"):
+        tax_configuration = FinancialConfiguration.objects.filter(
+            pk=agreement_terms["tax_configuration_id"]
+        ).first()
+    tax_amount = Decimal("0.00") if commission <= 0 else None
     tax_rule = _matching_commission_rule(
-        tax_configuration, seller_role=seller_role,
+        tax_configuration, seller_role=seller_role, buyer_role=buyer_role,
         product_type=locked.product.product_type, region_id=region_id,
-    )
+        quantity=order_quantity, value=effective_gross,
+    ) if commission > 0 else None
+    if agreement_terms:
+        tax_rule = agreement_terms.get("tax_rule")
+        raw_tax = agreement_terms.get("tax_amount")
+        tax_amount = Decimal(str(raw_tax)) if raw_tax is not None else None
     if tax_rule:
         tax_rate = Decimal(str(tax_rule.get("rate", "0")))
         if tax_rate < 0 or tax_rate > 1:
@@ -158,36 +444,97 @@ def post_completed_order(order, *, actor, gross_override=None):
     else:
         snapshot_status = FinancialOrderSnapshot.Status.SETTLED
         tax_for_proceeds = tax_amount
+    from .revenue_engine import commission_payer
+
+    commission_payer_party, commission_payer_user = commission_payer(locked, RevenueMethod.Method.SELLER_COMMISSION, at=effective_at)
+    commission_payer_user = commission_payer_user or seller
+    tax_payer = str((tax_rule or {}).get("fee_payer", "") or "").lower()
+    contractual_payer = getattr(agreement, "contractual_payer", None)
+    tax_payer_choices = {
+        "seller": (RevenueMethod.Payer.SELLER, seller),
+        "buyer": (RevenueMethod.Payer.BUYER, buyer),
+        "requesting_party": (RevenueMethod.Payer.REQUESTING_PARTY, buyer),
+        "contractual_party": (RevenueMethod.Payer.CONTRACTUAL_PARTY, contractual_payer),
+    }
+    tax_payer_party, tax_payer_user = tax_payer_choices.get(
+        tax_payer, (commission_payer_party or RevenueMethod.Payer.SELLER, commission_payer_user or seller)
+    )
+    if agreement_terms:
+        tax_payer_party = agreement_terms.get("tax_payer_party") or tax_payer_party
+        tax_payer_user = None
+        if agreement_terms.get("tax_payer_user_id"):
+            from django.contrib.auth import get_user_model
+
+            tax_payer_user = get_user_model().objects.filter(
+                pk=agreement_terms["tax_payer_user_id"]
+            ).first()
+    if tax_payer and tax_payer not in tax_payer_choices:
+        raise ValueError("Tax fee_payer must be seller, buyer, requesting_party, or contractual_party.")
+    if tax_amount and tax_amount > 0 and tax_payer_user is None:
+        raise ValueError("The commission tax payer cannot be resolved from the approved Revenue Method.")
+    from .revenue_engine import plan_order_charges
+
+    preview = FinancialOrderSnapshot(
+        order=locked, gross_order_value=effective_gross,
+        commission_amount=commission, buyer_fee_amount=buyer_fee,
+    )
+    if agreement_terms:
+        seller_fees = sum((
+            Decimal(str(line["amount"])) for line in agreement_terms.get("fee_lines", [])
+            if str(line.get("payer_user_id")) == str(seller.pk)
+        ), Decimal("0.00"))
+    else:
+        charge_plan = plan_order_charges(locked, snapshot=preview, at=effective_at)
+        seller_fees = sum((item["amount"] for item in charge_plan if item["payer_user"] == seller), Decimal("0.00"))
+    tax_deduction = tax_for_proceeds if tax_payer_user == seller else Decimal("0.00")
     snapshot = FinancialOrderSnapshot.objects.create(
         order=locked, configuration=configuration, gross_order_value=effective_gross,
         seller_role=seller_role, seller_user=seller, commission_rate=rate, commission_fixed_fee=fixed,
         commission_amount=commission, service_fee_amount=fixed,
+        buyer_fee_amount=buyer_fee,
+        buyer_user=buyer,
         tax_configuration=tax_configuration, tax_amount=tax_amount,
-        seller_proceeds=effective_gross - commission - tax_for_proceeds,
+        tax_payer_party=str(tax_payer_party or ""), tax_payer_user=tax_payer_user,
+        seller_proceeds=max(Decimal("0.00"), effective_gross - seller_fees - tax_deduction),
         currency="ETB", status=snapshot_status,
     )
-    if commission > 0:
-        post_journal_entry(
-            reference=f"order-commission:{locked.pk}", category="MARKETPLACE_COMMISSION",
-            amount=commission, currency="ETB",
-            debit_code="LIABILITY:SELLER_WALLET", debit_name="Seller wallet liability", debit_category="LIABILITY",
-            credit_code="REVENUE:COMMISSION", credit_name="Marketplace commission revenue", credit_category="REVENUE",
-            source="ORDER_SETTLEMENT", source_reference=locked.reference, actor=actor,
-            description=f"Approved commission on completed order {locked.reference}",
-            related_user=seller, configuration=configuration,
-            order_reference=locked.reference, location=location,
-        )
     if tax_amount and tax_amount > 0:
+        tax_party = tax_payer_party
+        if tax_party == RevenueMethod.Payer.SELLER:
+            tax_debit_code, tax_debit_name, tax_user = "LIABILITY:SELLER_WALLET", "Seller wallet liability", seller
+        elif tax_party == RevenueMethod.Payer.BUYER:
+            tax_debit_code, tax_debit_name, tax_user = "LIABILITY:BUYER_WALLET", "Buyer wallet liability", buyer
+        else:
+            tax_debit_code, tax_debit_name, tax_user = "LIABILITY:PARTICIPANT_WALLET", "Participant wallet liability", tax_payer_user
         post_journal_entry(
             reference=f"order-tax:{locked.pk}", category="TAX_LIABILITY",
             amount=tax_amount, currency="ETB",
-            debit_code="LIABILITY:SELLER_WALLET", debit_name="Seller wallet liability", debit_category="LIABILITY",
+            debit_code=tax_debit_code, debit_name=tax_debit_name, debit_category="LIABILITY",
             credit_code="LIABILITY:TAX_PAYABLE", credit_name="Tax payable", credit_category="LIABILITY",
             source="ORDER_SETTLEMENT", source_reference=locked.reference, actor=actor,
             description=f"Tax on commission for order {locked.reference}",
-            related_user=seller, configuration=tax_configuration,
+            related_user=tax_user, configuration=tax_configuration,
             order_reference=locked.reference, location=location,
+            revenue_method="TAX", payer_party=tax_party, payer_user=tax_user,
         )
+        if tax_payer_user != seller:
+            from .revenue_engine import debit_available_wallet
+
+            debit_available_wallet(
+                user=tax_payer_user, amount=tax_amount,
+                reference=f"ORDER-TAX-{locked.pk}", actor=actor, order=locked,
+                description=f"Approved tax on marketplace commission for {locked.reference}",
+            )
+    # The Revenue Methods engine records commission entries and any additional
+    # configured fees exactly once using the selected payer's wallet.
+    from .revenue_engine import apply_order_revenue_methods
+
+    apply_order_revenue_methods(
+        locked, actor=actor, at=effective_at,
+        fee_terms_snapshot=agreement_terms if agreement_terms else None,
+    )
+    from .inventory_services import settle_order_inventory
+    settle_order_inventory(locked)
     return snapshot
 
 
@@ -203,13 +550,21 @@ def resolve_delivery_pricing(*, agreement, actor):
     ).filter(models.Q(effective_to__isnull=True) | models.Q(effective_to__gt=effective_at))
     business_agreement = getattr(agreement.order, "agreement", None)
     agreement_reference = str(business_agreement.pk) if business_agreement else ""
+    driver_vehicle_category = "*"
+    if agreement.driver_payee_id:
+        try:
+            driver_vehicle_category = agreement.driver_payee.marketplace_driver_identity.profile.application.vehicle_type or "*"
+        except Exception:
+            # A driver without a synchronized, approved vehicle profile can only
+            # match a rule that is not restricted to a vehicle category.
+            pass
     rules = rules.filter(models.Q(business_agreement_reference=agreement_reference) | models.Q(business_agreement_reference=""))
     scope_values = {
         "wereda_id": details.pickup_wereda_id,
         "zone_id": details.pickup_zone_id,
         "region_id": details.pickup_region_id,
-        "category": getattr(agreement.order.product, "product_type", "*"),
-        "vehicle_category": getattr(details, "vehicle_category", "*"),
+        "category": getattr(agreement.order.product, "category", "*"),
+        "vehicle_category": driver_vehicle_category,
     }
     candidates = []
     for rule in rules:
@@ -279,6 +634,9 @@ def verify_delivery_payment(payment_id, *, actor, verified_amount=None, evidence
             debit_code="LIABILITY:DELIVERY_SETTLEMENT", debit_name="Delivery settlement payable", debit_category="LIABILITY",
             credit_code="REVENUE:DELIVERY", credit_name="Delivery service revenue", credit_category="REVENUE",
             source="DELIVERY_PAYMENT", source_reference=payment.payment_reference, actor=actor, order_reference=agreement.order.reference)
+    from .revenue_engine import apply_freight_revenue
+
+    apply_freight_revenue(payment, actor=actor)
     if payment.tax_amount is None:
         return payment
     if payment.tax_amount > 0:
@@ -303,7 +661,12 @@ def snapshot_delivery_pricing(agreement):
         platform_fee, driver_charge, customer_amount = fee, fee_base, fee_base + fee
     agreement.pricing_model_snapshot = config.pricing_model
     tax_configuration = _active_configuration(FinancialConfiguration.Kind.TAX, agreement.buyer_accepted_at)
-    tax_rule = _matching_commission_rule(tax_configuration, seller_role="DRIVER", product_type=agreement.order.product.product_type, region_id=agreement.order.shipment_details.pickup_region_id) if tax_configuration else None
+    tax_rule = _matching_commission_rule(
+        tax_configuration, seller_role="DRIVER", buyer_role="*",
+        product_type=agreement.order.product.product_type,
+        region_id=agreement.order.shipment_details.pickup_region_id,
+        quantity=agreement.order.quantity, value=agreement.order.total_amount,
+    ) if tax_configuration else None
     agreement.pricing_configuration_snapshot = {"configuration_id": str(config.pk), "fee_type": config.fee_type, "fee_value": str(config.fee_value), "minimum_fee": str(config.minimum_fee), "maximum_fee": str(config.maximum_fee), "effective_from": config.effective_from.isoformat(), "customer_amount": str(customer_amount), "driver_charge": str(driver_charge), "platform_fee": str(platform_fee), "tax_configuration_id": str(tax_configuration.pk) if tax_configuration else None, "tax_rule": tax_rule, "tax_amount": None}
 
     agreement.driver_charge_snapshot = driver_charge
@@ -554,10 +917,30 @@ def pay_approved_payroll(payroll_id, *, actor, payment_reference):
         source="PAYROLL", source_reference=str(payroll.pk), actor=actor,
         description=f"Payroll payment for {payroll.employee_id}", related_user=payroll.employee,
     )
+    # Credit the employee's platform wallet with the net salary: the system's
+    # obligation moves from "payroll payable" into the staff member's own
+    # balance, which they can then withdraw through the payout-request flow.
+    from payments.models import Wallet
+    wallet, _created = Wallet.objects.get_or_create(user=payroll.employee)
+    wallet.available_balance = (wallet.available_balance or Decimal("0")) + amount
+    wallet.save(update_fields=["available_balance"])
+
     payroll.status = FinancialPayrollRecord.Status.PAID
     payroll.paid_at = timezone.now()
     payroll.payment_reference = payment_reference
     payroll.journal_entry = entry
     payroll.save(update_fields=["status", "paid_at", "payment_reference", "journal_entry"])
     AuditLog.objects.create(actor=actor, action="PAYROLL_PAID", target=str(payroll.pk), detail=payment_reference)
+
+    from notifications.services import notify
+    notify(
+        user_ids=[payroll.employee_id],
+        type="PAYMENT",
+        message=(
+            f"Your salary for the period {payroll.period_start} to {payroll.period_end} "
+            f"({amount} {payroll.currency}) has been credited to your wallet."
+        ),
+        actor=actor,
+        target_url="/wallet",
+    )
     return payroll

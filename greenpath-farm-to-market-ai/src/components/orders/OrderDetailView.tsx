@@ -29,6 +29,8 @@ import {
   Loader2,
   MessageSquare,
   Package,
+  Printer,
+  ReceiptText,
   ShieldCheck,
   Truck,
   User,
@@ -56,6 +58,9 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
   const [error, setError] = useState('');
   const [order, setOrder] = useState<ApiOrder | null>(null);
   const [shipment, setShipment] = useState<ApiShipmentDetails | null>(null);
+  const [settlementReceipt, setSettlementReceipt] = useState<any>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
   const [shipmentLoaded, setShipmentLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -72,6 +77,20 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
   const [cargoWeight, setCargoWeight] = useState('');
   const [packaging, setPackaging] = useState('');
   const [feeProposal, setFeeProposal] = useState('');
+
+  const loadSettlementReceipt = async () => {
+    if (receiptLoading) return;
+    setReceiptLoading(true);
+    setReceiptError('');
+    try {
+      const response = await api.orders.receipt(orderId);
+      setSettlementReceipt(response.data?.receipt ?? null);
+    } catch (err) {
+      setReceiptError(formatApiError(err, 'The order settlement receipt could not be loaded.'));
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setState('loading');
@@ -352,22 +371,86 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
               {formatDateTime(order.updated_at)}
             </p>
           </div>
-          <button
-            onClick={() => {
-              setActiveView('messaging');
-              navigate(
-                `/messaging?with=${encodeURIComponent(
-                  counterpartyId
-                )}&name=${encodeURIComponent(counterpartyName || '')}`
-              );
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-xs font-semibold"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-            Trade chat with {counterpartyName}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {order.payment_status === 'RELEASED' && order.status === 'Completed' && (
+              <button
+                type="button"
+                onClick={() => void loadSettlementReceipt()}
+                disabled={receiptLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold disabled:opacity-60"
+              >
+                {receiptLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ReceiptText className="w-3.5 h-3.5" />}
+                {receiptLoading ? 'Loading receipt…' : 'Settlement receipt'}
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setActiveView('messaging');
+                navigate(
+                  `/messaging?with=${encodeURIComponent(
+                    counterpartyId
+                  )}&name=${encodeURIComponent(counterpartyName || '')}`
+                );
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-xs font-semibold"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+              Trade chat with {counterpartyName}
+            </button>
+          </div>
         </div>
       </div>
+
+      {receiptError && (
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
+          {receiptError}
+        </div>
+      )}
+      {settlementReceipt && (
+        <section aria-label="Order settlement receipt" className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm dark:border-emerald-900 dark:bg-slate-900 print:border-0 print:shadow-none">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3 dark:border-slate-800">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold"><ReceiptText className="h-4 w-4 text-emerald-700" /> Settlement receipt</div>
+              <div className="mt-1 font-mono text-xs text-slate-500">{settlementReceipt.receipt_id} · {settlementReceipt.order_reference}</div>
+            </div>
+            <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold dark:border-slate-700 print:hidden">
+              <Printer className="h-3.5 w-3.5" /> Print
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Buyer / payer" value={`${settlementReceipt.buyer?.name ?? '—'} · ${settlementReceipt.buyer?.role ?? ''}`} />
+            <Field label="Seller / revenue activity" value={`${settlementReceipt.seller?.name ?? '—'} · ${settlementReceipt.seller?.role ?? ''}`} />
+            <Field label="Product and quantity" value={`${settlementReceipt.product ?? '—'} · ${settlementReceipt.quantity ?? '—'}`} />
+            <Field label="Escrow released" value={formatEtb(settlementReceipt.escrow_released)} />
+            <Field label="Commission" value={formatEtb(settlementReceipt.commission)} />
+            <Field label="Buyer fee" value={formatEtb(settlementReceipt.buyer_fee)} />
+            <Field label="Tax" value={settlementReceipt.tax == null ? 'Unresolved' : formatEtb(settlementReceipt.tax)} />
+            <Field label="Seller proceeds" value={formatEtb(settlementReceipt.seller_proceeds)} />
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[680px] text-left text-xs">
+              <thead className="text-[10px] uppercase text-slate-500"><tr><th className="py-2 pr-3">Fee source</th><th className="py-2 pr-3">Payer</th><th className="py-2 pr-3 text-right">Charged / collected</th><th className="py-2 pr-3 text-right">Company earned</th><th className="py-2 pr-3 text-right">Third party</th><th className="py-2">Status</th></tr></thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {(settlementReceipt.fees || []).map((fee: any, index: number) => (
+                  <tr key={`${fee.ledger_reference ?? fee.method}-${index}`}>
+                    <td className="py-2 pr-3 font-semibold">{String(fee.method).replace(/_/g, ' ')}<span className="block font-normal text-slate-500">generated by {fee.generated_by || '—'}</span></td>
+                    <td className="py-2 pr-3">{fee.payer_name}<span className="block text-slate-500">{String(fee.payer).replace(/_/g, ' ')}</span></td>
+                    <td className="py-2 pr-3 text-right font-mono">{formatEtb(fee.amount_charged)} / {formatEtb(fee.amount_collected)}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{formatEtb(fee.company_earned)}</td>
+                    <td className="py-2 pr-3 text-right font-mono">{formatEtb(fee.third_party_payable)}</td>
+                    <td className="py-2">{fee.settlement_status}</td>
+                  </tr>
+                ))}
+                {!(settlementReceipt.fees || []).length && <tr><td colSpan={6} className="py-3 text-center text-slate-500">No separate Revenue Method fees were charged.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <details className="mt-3 text-[10px] text-slate-500">
+            <summary className="cursor-pointer font-semibold">Ledger references</summary>
+            <div className="mt-2 flex flex-wrap gap-1.5">{(settlementReceipt.ledger_references || []).map((reference: string) => <code key={reference} className="rounded bg-slate-100 px-1.5 py-1 dark:bg-slate-800">{reference}</code>)}</div>
+          </details>
+        </section>
+      )}
 
       {actionError && (
         <div className="p-3 rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
@@ -818,6 +901,49 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
                 <span className="font-bold">{order.agreement_status || '—'}</span>
               </div>
             </div>
+            {order.financial_terms_snapshot && Object.keys(order.financial_terms_snapshot).length > 0 && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+                <div className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                  Fee terms agreed at seller acceptance
+                </div>
+                <div className="mt-2 space-y-1.5 text-xs">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-600 dark:text-slate-300">
+                      Marketplace commission{(order.financial_terms_snapshot.fee_lines || []).filter((fee) => fee.method === 'SELLER_COMMISSION').length > 0 && ` · paid by ${(order.financial_terms_snapshot.fee_lines || []).filter((fee) => fee.method === 'SELLER_COMMISSION').map((fee) => fee.payer_name).join(' and ')}`}
+                    </span>
+                    <span className="font-mono font-semibold">{formatEtb(order.financial_terms_snapshot.commission_amount || 0)}</span>
+                  </div>
+                  {Number(order.financial_terms_snapshot.buyer_fee_amount || 0) > 0 && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-600 dark:text-slate-300">
+                        Buyer fee{(order.financial_terms_snapshot.fee_lines || []).filter((fee) => fee.method === 'BUYER_COMMISSION').length > 0 && ` · paid by ${(order.financial_terms_snapshot.fee_lines || []).filter((fee) => fee.method === 'BUYER_COMMISSION').map((fee) => fee.payer_name).join(' and ')}`}
+                      </span>
+                      <span className="font-mono font-semibold">{formatEtb(order.financial_terms_snapshot.buyer_fee_amount || 0)}</span>
+                    </div>
+                  )}
+                  {(order.financial_terms_snapshot.fee_lines || []).filter((fee) => !['SELLER_COMMISSION', 'BUYER_COMMISSION'].includes(fee.method)).map((fee, index) => (
+                    <div className="flex justify-between gap-3" key={`${fee.method}-${index}`}>
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {fee.method.replaceAll('_', ' ')} · paid by {fee.payer_name}
+                      </span>
+                      <span className="font-mono font-semibold">{formatEtb(fee.amount)}</span>
+                    </div>
+                  ))}
+                  {order.financial_terms_snapshot.tax_amount != null ? (
+                    <div className="flex justify-between gap-3 border-t border-emerald-200 pt-1.5 dark:border-emerald-900">
+                      <span className="text-slate-600 dark:text-slate-300">
+                        Tax · {order.financial_terms_snapshot.tax_payer_party || 'assigned payer'}
+                      </span>
+                      <span className="font-mono font-semibold">{formatEtb(order.financial_terms_snapshot.tax_amount)}</span>
+                    </div>
+                  ) : (order.financial_terms_snapshot.issues || []).length > 0 ? (
+                    <p className="border-t border-amber-200 pt-1.5 text-amber-800 dark:border-amber-900 dark:text-amber-300">
+                      Tax treatment is unresolved. No tax is included in these agreed amounts.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            )}
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               The marketplace holds the buyer's goods funds. Seller acceptance never charges
               the buyer again, and release still requires delivery, buyer quality

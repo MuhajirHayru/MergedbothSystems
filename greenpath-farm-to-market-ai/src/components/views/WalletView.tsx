@@ -167,14 +167,14 @@ export const WalletView: React.FC = () => {
             onClick={() => setShowPayoutModal(true)}
             className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg transition-colors"
           >
-            Request Payout
+            Withdraw
           </button>
           <button
             onClick={() => setShowDepositModal(true)}
             className="flex items-center gap-1.5 px-4 py-2 bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>Fund Wallet via Chapa</span>
+            <span>Deposit</span>
           </button>
         </div>
       </div>
@@ -390,7 +390,7 @@ export const WalletView: React.FC = () => {
                   type="submit"
                   className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm"
                 >
-                  Submit Payout Request
+                  Withdraw
                 </button>
               </div>
             </form>

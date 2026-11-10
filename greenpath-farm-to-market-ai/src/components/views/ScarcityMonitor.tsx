@@ -111,7 +111,7 @@ export const ScarcityMonitor: React.FC = () => {
   }, [intel]);
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -167,7 +167,7 @@ export const ScarcityMonitor: React.FC = () => {
               <div className="h-60" role="img" aria-label="Pie chart of products classified by listing availability">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={classificationCounts} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3}>
+                    <Pie data={classificationCounts} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3} isAnimationActive={false}>
                       {classificationCounts.map((d) => <Cell key={d.name} fill={CLASS_COLORS[d.name] ?? '#64748b'} />)}
                     </Pie>
                     <Tooltip />
@@ -185,7 +185,7 @@ export const ScarcityMonitor: React.FC = () => {
                     <XAxis dataKey="region" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={60} />
                     <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                     <Tooltip />
-                    <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={26} />
+                    <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={26}  isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

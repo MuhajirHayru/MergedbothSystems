@@ -230,58 +230,125 @@ class DriverPerformanceView(APIView):
 # ---------------------------------------------------------------------------
 
 class SystemHealthDetailedView(APIView):
-    """GET /api/v1/superadmin/health-detailed/ — comprehensive system health."""
+    """GET /api/v1/superadmin/health-detailed/ — comprehensive system health.
+
+    Every service entry reflects a real probe or a real configuration check —
+    never a hardcoded status string.
+    """
 
     def get_permissions(self):
         return [IsSuperAdmin()]
 
     def get(self, request):
-        from django.db import connection
-        from django.core.cache import cache as dj_cache
+        import time
 
-        # DB check
+        from django.conf import settings
+        from django.core.cache import cache as dj_cache
+        from django.db import connection
+
+        from payments.models import MarketplaceIntegrationOutbox
+
+        # Database: real connectivity probe with measured latency.
+        started = time.perf_counter()
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
             db_ok = True
-            db_latency_ms = 0
+            db_latency_ms = round((time.perf_counter() - started) * 1000, 1)
         except Exception:
             db_ok = False
             db_latency_ms = -1
 
-        # Cache check
+        # Cache: real round-trip through the configured cache backend.
         try:
             dj_cache.set("health_check", "ok", 10)
             cache_ok = dj_cache.get("health_check") == "ok"
         except Exception:
             cache_ok = False
 
-        # Recent error rate
+        # Chapa: real configuration probe (booleans only — never expose keys).
+        chapa_key_ok = bool(
+            getattr(settings, "CHAPA_TEST_MODE", False)
+            and (getattr(settings, "CHAPA_SECRET_KEY", "") or "").startswith("CHASECK_TEST-")
+        )
+        chapa_webhook_ok = bool(getattr(settings, "CHAPA_WEBHOOK_SECRET", ""))
+        chapa_status = "configured" if chapa_key_ok else "not_configured"
+        if chapa_key_ok:
+            chapa_detail = (
+                "Sandbox key configured · "
+                + ("webhook secret set" if chapa_webhook_ok else "webhook secret missing (callbacks disabled)")
+            )
+        else:
+            chapa_detail = "No Chapa test secret key configured — payments disabled"
+
+        # DriverApp integration: real outbox counters (pending/blocked reveal
+        # a stalled or failing event feed).
+        outbox_pending = MarketplaceIntegrationOutbox.objects.filter(
+            status__in=[MarketplaceIntegrationOutbox.Status.PENDING, MarketplaceIntegrationOutbox.Status.SENDING],
+        ).count()
+        outbox_delivered = MarketplaceIntegrationOutbox.objects.filter(
+            status=MarketplaceIntegrationOutbox.Status.DELIVERED,
+        ).count()
+        outbox_blocked = MarketplaceIntegrationOutbox.objects.filter(
+            status=MarketplaceIntegrationOutbox.Status.BLOCKED,
+        ).count()
+        driverapp_status = "operational" if outbox_blocked == 0 else "degraded"
+        if outbox_pending + outbox_delivered + outbox_blocked == 0:
+            driverapp_detail = "No integration events yet (feed idle)"
+        else:
+            driverapp_detail = f"{outbox_pending} pending · {outbox_delivered} delivered · {outbox_blocked} blocked"
+
+        # WebSocket: honest configuration check. Whether the ASGI server is
+        # actually serving sockets cannot be proven from inside the request
+        # process, so the status is "configured", never a claimed "running".
+        asgi_app = getattr(settings, "ASGI_APPLICATION", None)
+        channels_installed = "channels" in getattr(settings, "INSTALLED_APPS", [])
+        ws_configured = bool(asgi_app) and channels_installed
+        ws_status = "configured" if ws_configured else "not_configured"
+        ws_detail = (
+            f"ASGI application: {asgi_app} · channels installed"
+            if ws_configured
+            else "ASGI application or channels not configured"
+        )
+
+        # Recent failures: real count of failed administrative actions.
         last_hour = timezone.now() - timedelta(hours=1)
         recent_errors = AuditLog.objects.filter(
             created_at__gte=last_hour, success=False
         ).count()
 
         services = [
-            {"name": "Database", "status": "operational" if db_ok else "down", "detail": f"SQLite ({'connected' if db_ok else 'disconnected'})"},
-            {"name": "Cache", "status": "operational" if cache_ok else "degraded", "detail": "In-memory cache"},
-            {"name": "Chapa Payment Gateway", "status": "operational", "detail": "Test mode configured"},
-            {"name": "DriverApp Integration", "status": "operational", "detail": "Outbox + feed active"},
-            {"name": "WebSocket Server", "status": "operational", "detail": "ASGI/Daphne running"},
+            {
+                "name": "Database",
+                "status": "operational" if db_ok else "down",
+                "detail": f"SQLite ({'connected' if db_ok else 'disconnected'}{f' · {db_latency_ms} ms' if db_ok else ''})",
+            },
+            {
+                "name": "Cache",
+                "status": "operational" if cache_ok else "degraded",
+                "detail": "In-memory cache round-trip OK" if cache_ok else "Cache round-trip failed",
+            },
+            {"name": "Chapa Payment Gateway", "status": chapa_status, "detail": chapa_detail},
+            {"name": "DriverApp Integration", "status": driverapp_status, "detail": driverapp_detail},
+            {"name": "WebSocket Server", "status": ws_status, "detail": ws_detail},
         ]
 
-        overall = "operational" if db_ok and cache_ok else "degraded"
+        overall = "operational" if db_ok and cache_ok and chapa_key_ok else "degraded"
         return Response({
             "success": True,
             "status": overall,
             "services": services,
             "error_rate_last_hour": recent_errors,
+            "db_latency_ms": db_latency_ms,
             "checked_at": timezone.now().isoformat(),
         })
 
 
 class AllOrdersOversightView(APIView):
-    """GET /api/v1/superadmin/orders-oversight/ — all orders platform-wide."""
+    """GET /api/v1/superadmin/orders-oversight/ — all orders platform-wide.
+
+    Supports ``page``/``page_size`` pagination (25 per page by default).
+    """
 
     def get_permissions(self):
         return [IsSuperAdmin()]
@@ -302,8 +369,11 @@ class AllOrdersOversightView(APIView):
                 | Q(wholesaler__full_name__icontains=search)
                 | Q(farmer__full_name__icontains=search)
             )
+        matched = orders.count()
+        page, page_size = _page_params(request)
+        start = (page - 1) * page_size
         rows = []
-        for o in orders[:200]:
+        for o in orders[start:start + page_size]:
             buyer = o.buyer
             seller = o.seller
             rows.append({
@@ -323,7 +393,10 @@ class AllOrdersOversightView(APIView):
         return Response({
             "success": True,
             "summary": {
-                "total": orders.count(),
+                "total": matched,
+                "page": page,
+                "page_size": page_size,
+                "has_next": start + page_size < matched,
                 "completed": orders.filter(status="Completed").count(),
                 "pending": orders.filter(status__in=["Pending seller approval", "Accepted", "Processing", "Confirmed"]).count(),
                 "disputed": orders.filter(status="Disputed").count(),
@@ -332,23 +405,64 @@ class AllOrdersOversightView(APIView):
         })
 
 
+def _page_params(request, default_size=25, max_size=100):
+    """Shared pagination parsing for oversight lists."""
+    try:
+        page = max(1, int(request.query_params.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = min(max_size, max(1, int(request.query_params.get("page_size", default_size))))
+    except (TypeError, ValueError):
+        page_size = default_size
+    return page, page_size
+
+
 class AllWalletsOversightView(APIView):
-    """GET /api/v1/superadmin/wallets-oversight/ — all user wallets."""
+    """GET /api/v1/superadmin/wallets-oversight/ — all user wallets.
+
+    Supports ``search`` (name/email), ``role`` filter and ``page``/``page_size``
+    pagination. Summary totals always cover the entire platform, not the page.
+    """
 
     def get_permissions(self):
         return [IsSuperAdmin()]
 
     def get(self, request):
         from payments.models import Wallet as W
+        from users.models import Role
+
         wallets = W.objects.select_related("user").order_by("-available_balance")
+        search = (request.query_params.get("search") or "").strip()
+        role = (request.query_params.get("role") or "").strip()
+        if search:
+            wallets = wallets.filter(
+                Q(user__full_name__icontains=search) | Q(user__email__icontains=search)
+            )
+        if role:
+            if role not in Role.values:
+                return Response(
+                    {"success": False, "error": {"message": "Unknown role filter."}},
+                    status=400,
+                )
+            wallets = wallets.filter(user__role=role)
+
         total_available = wallets.aggregate(s=Sum("available_balance"))["s"] or 0
         total_held = wallets.aggregate(s=Sum("held_balance"))["s"] or 0
+        matched = wallets.count()
+
+        page, page_size = _page_params(request)
+        start = (page - 1) * page_size
+        rows = list(wallets[start:start + page_size])
         return Response({
             "success": True,
             "summary": {
-                "total_wallets": wallets.count(),
+                "total_wallets": matched,
                 "total_available": str(total_available),
                 "total_held": str(total_held),
+                "page": page,
+                "page_size": page_size,
+                "has_next": start + page_size < matched,
             },
             "wallets": [
                 {
@@ -360,24 +474,101 @@ class AllWalletsOversightView(APIView):
                     "held": str(w.held_balance),
                     "currency": w.currency,
                 }
-                for w in wallets[:200]
+                for w in rows
             ],
         })
 
 
-class AnnouncementBroadcastView(APIView):
-    """POST /api/v1/superadmin/broadcast/ — send announcement to all users."""
+def _expire_due_announcements():
+    """End any announcements whose expiry has passed.
+
+    Expiry is enforced when the history is read (no scheduler required): the
+    remaining in-app notifications are removed exactly like a manual "end".
+    """
+    from notifications.models import Announcement
+    due = Announcement.objects.filter(ended_at__isnull=True, expires_at__lte=timezone.now())
+    for a in due:
+        a.notifications.all().delete()
+        a.ended_at = timezone.now()
+        a.save(update_fields=["ended_at"])
+
+
+class AnnouncementHistoryView(APIView):
+    """GET /api/v1/superadmin/broadcasts/ — announcement history.
+
+    Query params: ``from``/``to`` (ISO dates filter created_at), ``status``
+    (active|ended), ``page``/``page_size``. Reading the history also enforces
+    pending expiries.
+    """
 
     def get_permissions(self):
         return [IsSuperAdmin()]
 
-    def post(self, request):
-        message = (request.data.get("message") or "").strip()
-        if not message:
-            return Response({"success": False, "error": {"message": "Announcement text is required."}}, status=400)
-        from notifications.services import notify
-        from users.models import AccountStatus
-        active_users = User.objects.filter(is_active=True, status=AccountStatus.APPROVED).values_list("pk", flat=True)
-        notify(user_ids=list(active_users), type="SYSTEM", message=f"📢 Platform Announcement: {message}", actor=request.user)
-        AuditLog.objects.create(actor=request.user, action="announcement_broadcast", detail=message[:200])
-        return Response({"success": True, "sent_to": User.objects.filter(is_active=True, status=AccountStatus.APPROVED).count()})
+    def get(self, request):
+        from notifications.models import Announcement
+        _expire_due_announcements()
+
+        rows = Announcement.objects.all()
+        date_from = request.query_params.get("from")
+        date_to = request.query_params.get("to")
+        try:
+            if date_from:
+                rows = rows.filter(created_at__date__gte=date_from)
+            if date_to:
+                rows = rows.filter(created_at__date__lte=date_to)
+        except (ValueError, TypeError):
+            return Response({"success": False, "error": {"message": "Invalid date filter (use YYYY-MM-DD)."}}, status=400)
+        status = (request.query_params.get("status") or "").strip()
+        if status == "active":
+            rows = rows.filter(ended_at__isnull=True).exclude(expires_at__lte=timezone.now())
+        elif status == "ended":
+            rows = rows.filter(ended_at__isnull=False)
+
+        matched = rows.count()
+        page, page_size = _page_params(request, default_size=10, max_size=50)
+        start = (page - 1) * page_size
+        return Response({
+            "success": True,
+            "summary": {"total": matched, "page": page, "page_size": page_size, "has_next": start + page_size < matched},
+            "broadcasts": [
+                {
+                    "id": str(a.pk),
+                    "message": a.message,
+                    "created_by": a.created_by.full_name if a.created_by else None,
+                    "recipient_count": a.recipient_count,
+                    "still_in_inboxes": a.notifications.count(),
+                    "unread_remaining": a.notifications.filter(is_read=False).count(),
+                    "created_at": a.created_at.isoformat(),
+                    "expires_at": a.expires_at.isoformat() if a.expires_at else None,
+                    "ended_at": a.ended_at.isoformat() if a.ended_at else None,
+                    "status": "ended" if a.ended_at else "active",
+                }
+                for a in rows[start:start + page_size]
+            ],
+        })
+
+
+class AnnouncementEndView(APIView):
+    """POST /api/v1/superadmin/broadcasts/{id}/end/ — remove a broadcast from all inboxes.
+
+    The Announcement row is retained (ended_at stamped) as the accountable
+    history record; deleting it from history is not possible by design.
+    """
+
+    def get_permissions(self):
+        return [IsSuperAdmin()]
+
+    def post(self, request, pk):
+        from django.shortcuts import get_object_or_404
+        from notifications.models import Announcement
+        announcement = get_object_or_404(Announcement, pk=pk)
+        if announcement.ended_at:
+            return Response({"success": True, "already_ended": True, "ended_at": announcement.ended_at.isoformat()})
+        removed = announcement.notifications.all().delete()[0] or 0
+        announcement.ended_at = timezone.now()
+        announcement.save(update_fields=["ended_at"])
+        AuditLog.objects.create(
+            actor=request.user, action="announcement_ended",
+            detail=f"{announcement.message[:200]} — {removed} notifications removed",
+        )
+        return Response({"success": True, "already_ended": False, "removed_notifications": removed, "ended_at": announcement.ended_at.isoformat()})

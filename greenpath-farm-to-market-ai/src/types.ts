@@ -6,6 +6,9 @@ export type UserRole =
   | 'driver'
   | 'financial_manager'
   | 'user_admin'
+  | 'regional_admin'
+  | 'zonal_admin'
+  | 'wereda_admin'
   | 'top_user_admin'
   | 'super_admin' | 'logistics_manager' | 'customer_support';
 
@@ -85,6 +88,8 @@ export interface UserProfile {
   truckPlateNumber?: string;
   truckCapacityTons?: number;
   registrationDate: string;
+  /** Raw ISO timestamp of registration (when available) — used for date-range filters. */
+  registeredAt?: string;
   lastActivity?: string;
   documents: DocumentRecord[];
   bankAccounts?: BankAccount[];
@@ -207,6 +212,8 @@ export interface WalletState {
 
 export interface RegistrationApplication {
   id: string;
+  /** Raw ISO submitted timestamp — used for date-range filters. */
+  submittedAtRaw?: string;
   trackingNumber?: string;
   fullName: string;
   age?: number;
@@ -250,12 +257,20 @@ export interface WeredaFinancialMetric {
   weredaName: string;
   totalTransactions: number;
   totalValueETB: number;
+  usersCount: number;
 }
 
 export interface ZoneFinancialMetric {
   zoneName: string;
   totalTransactions: number;
   totalValueETB: number;
+  usersCount: number;
+  verifiedPaymentValueETB: number;
+  pendingPaymentValueETB: number;
+  availableWalletETB: number;
+  heldWalletETB: number;
+  /** True when the zone comes from administrative reference data with no registered participants yet. */
+  referenceOnly?: boolean;
   weredas: WeredaFinancialMetric[];
 }
 
@@ -273,6 +288,7 @@ export interface RegionalFinancialMetric {
   payoutValueETB: number;
   availableWalletETB: number;
   heldWalletETB: number;
+  usersWithoutZoneDetail: number;
   zones: ZoneFinancialMetric[];
 }
 

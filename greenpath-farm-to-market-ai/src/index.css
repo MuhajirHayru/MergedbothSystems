@@ -45,3 +45,59 @@
 }
 
 /* a11y-marker-7f3a */
+
+/* Print styles — exclude navigation, sidebars, and application chrome */
+@media print {
+  /* Hide non-printable UI elements */
+  header,
+  nav,
+  aside,
+  .sidebar,
+  button,
+  [role="navigation"],
+  [aria-label*="menu"],
+  [aria-label*="navigation"],
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset page layout for printing */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 10pt;
+  }
+
+  /* Remove shadows, borders, and decorative elements */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Ensure tables and charts break properly across pages */
+  table,
+  figure,
+  .chart-container {
+    page-break-inside: avoid;
+  }
+
+  /* Force links to show their URLs */
+  a[href]:after {
+    content: " (" attr(href) ")";
+    font-size: 8pt;
+    color: #666;
+  }
+
+  /* Prevent unnecessary page breaks */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+
+  /* Expand container widths for print */
+  .container,
+  .max-w-7xl,
+  .max-w-6xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+}

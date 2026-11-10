@@ -31,6 +31,7 @@ import {
   Heart,
   Eye,
   Gavel,
+  Wallet,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -39,7 +40,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const { currentRole, activeView, setActiveView, currentUser, setAiModalOpen, logout } = useApp();
+  const { currentRole, activeView, setActiveView, currentUser, logout } = useApp();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem('gp_sidebar_collapsed');
@@ -89,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         return [
           { id: 'farmer_dashboard', label: 'Overview', icon: LayoutDashboard },
           { id: 'farmer_products', label: 'My Products & Listings', icon: Package },
-          { id: 'orders', label: 'Incoming Orders', icon: ShoppingBag, badge: '2' },
+          { id: 'orders', label: 'Incoming Orders', icon: ShoppingBag },
           { id: 'order_history', label: 'Order History', icon: FileText },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'wallet', label: 'My Earnings & Wallet', icon: DollarSign },
@@ -103,7 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'wholesaler_dashboard', label: 'Overview', icon: LayoutDashboard },
           { id: 'marketplace', label: 'Discover Products', icon: ShoppingBag },
           { id: 'recommendations', label: 'AI Recommendations', icon: Sparkles },
-          { id: 'orders', label: 'My Orders', icon: Package, badge: '2' },
+          { id: 'orders', label: 'My Orders', icon: Package },
           { id: 'wholesaler_inventory', label: 'My Inventory Stock', icon: Layers },
           { id: 'wishlist', label: 'My Wishlist', icon: Heart },
           { id: 'wallet', label: 'Wallet & Escrow', icon: DollarSign },
@@ -116,7 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         return [
           { id: 'retailer_dashboard', label: 'Overview', icon: LayoutDashboard },
           { id: 'marketplace', label: 'Discover Products', icon: ShoppingBag },
-          { id: 'orders', label: 'My Restock Orders', icon: Package, badge: '1' },
+          { id: 'orders', label: 'My Restock Orders', icon: Package },
           { id: 'support_management', label: 'Get Help & Support', icon: LifeBuoy },
           { id: 'wishlist', label: 'My Wishlist', icon: Heart },
           { id: 'wallet', label: 'Wallet & Chapa Pay', icon: DollarSign },
@@ -151,21 +152,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'settings', label: 'Settings', icon: Settings },
         ];
       case 'financial_manager':
+        // Each destination is a real tab of the financial workspace. No entry
+        // here may resolve to the same default screen as another.
         return [
-          { id: '_hdr_overview', label: 'Overview', header: true },
-          { id: 'financial_dashboard', label: 'Financial Overview', icon: LayoutDashboard },
-          { id: 'reports_regional', label: 'Regional Financial Reports', icon: BarChart3, highlight: true },
-          { id: '_hdr_operations', label: 'Daily Operations', header: true },
-          { id: 'financial_controls', label: 'Financial Controls', icon: Sliders },
-          { id: 'payment_verification', label: 'Payment Verification', icon: DollarSign, badge: '3' },
-          { id: 'wallet_management', label: 'Wallet Vault & Escrow', icon: Shield },
+          { id: '_hdr_overview', label: 'Financial Overview', header: true, group: true },
+          { id: 'financial_dashboard', label: 'Financial Dashboard', icon: LayoutDashboard },
+          { id: 'financial_statement', label: 'Financial Statement', icon: FileText },
+          { id: 'reports_regional', label: 'Regional Money & Users', icon: BarChart3, highlight: true },
+          { id: '_hdr_wallets', label: 'Wallet Operations', header: true, group: true },
+          { id: 'wallet_management', label: 'Wallet Accounts & Escrow', icon: Shield },
+          { id: 'payment_verification', label: 'Payment Verification', icon: DollarSign },
           { id: 'funding_requests', label: 'Funding Requests', icon: Layers },
           { id: 'bank_accounts', label: 'Bank Accounts Review', icon: FileCheck2 },
-          { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
-          { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
+          { id: '_hdr_escrow', label: 'Escrow, Delivery & Pricing', header: true, group: true },
+          { id: 'financial_delivery_fees', label: 'Delivery Fee Agreements', icon: Truck },
+          { id: 'financial_controls', label: 'Pricing & Financial Controls', icon: Sliders },
           { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
+          { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
+          { id: '_hdr_expenses', label: 'Income & Expenses', header: true, group: true },
+          { id: 'financial_expenses', label: 'Operating Expenses', icon: DollarSign },
+          { id: 'financial_payroll', label: 'Payroll & Employees', icon: Users },
+          { id: 'financial_ledger', label: 'Ledger & Profit/Loss', icon: TrendingUp },
+          { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
+          { id: '_hdr_compliance', label: 'Compliance & Workspace', header: true, group: true },
           { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
-          { id: '_hdr_workspace', label: 'Compliance & Workspace', header: true },
           { id: 'audit_logs', label: 'Audit & Compliance Logs', icon: FileText },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Financial Settings', icon: Settings },
@@ -173,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       case 'user_admin':
         return [
           { id: 'user_admin_dashboard', label: 'Overview', icon: LayoutDashboard },
-          { id: 'pending_registrations', label: 'Pending Registrations', icon: FileCheck2, badge: '3' },
+          { id: 'pending_registrations', label: 'Pending Registrations', icon: FileCheck2 },
           { id: 'all_users', label: 'All Registered Users', icon: Users },
           { id: 'admin_products', label: 'Product Listings', icon: Package },
           { id: 'staff_management', label: 'Staff Management', icon: UserCog },
@@ -181,12 +191,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Admin Settings', icon: Settings },
         ];
+      // Regional, zonal and wereda administrators work inside the same scoped
+      // user-administration console as a User Admin; the backend enforces the
+      // geography. Without this case they fell through to the public menu.
+      case 'regional_admin':
+      case 'zonal_admin':
+      case 'wereda_admin':
+        return [
+          { id: 'regional_hierarchy', label: 'My Area & Admins', icon: MapPin },
+          { id: 'user_admin_dashboard', label: 'Overview', icon: LayoutDashboard },
+          { id: 'pending_registrations', label: 'Pending Registrations', icon: FileCheck2 },
+          { id: 'all_users', label: 'Scoped Users', icon: Users },
+          { id: 'admin_products', label: 'Product Listings', icon: Package },
+          { id: 'audit_logs', label: 'Verification Audit', icon: Shield },
+          { id: 'messaging', label: 'Messages', icon: MessageSquare },
+          { id: 'settings', label: 'Settings', icon: Settings },
+        ];
       case 'top_user_admin':
         return [
           { id: 'top_user_dashboard', label: 'National Agro Overview', icon: LayoutDashboard },
           { id: 'regional_hierarchy', label: 'Administrative Hierarchy', icon: MapPin },
           { id: 'staff_management', label: 'Administrative Users', icon: UserCog },
-          { id: 'reports_regional', label: 'Regional Financial Reports', icon: BarChart3, highlight: true },
+          { id: 'reports_regional', label: 'Regional Money & Users', icon: BarChart3, highlight: true },
           { id: 'all_users', label: 'All Regional Users', icon: Users },
           { id: 'audit_logs', label: 'Administrative Audit', icon: FileText },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
@@ -197,7 +223,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: '_hdr_overview', label: 'Executive Overview', header: true, group: true },
           { id: 'super_admin_dashboard', label: 'Command Centre', icon: LayoutDashboard },
           { id: 'system_admin', label: 'System Health & Operations', icon: Settings },
-          { id: 'reports_regional', label: 'Regional & Financial Reports', icon: BarChart3 },
+          { id: 'sa_revenue', label: 'Revenue Methods & Payers', icon: BarChart3 },
+          { id: 'reports_regional', label: 'Money by Region', icon: BarChart3 },
           { id: '_hdr_users', label: 'Users, Staff & Access', header: true, group: true },
           { id: 'all_users', label: 'All Users & Approvals', icon: Users },
           { id: 'all_users_wholesalers', label: 'Verified Wholesalers', icon: ShoppingBag },
@@ -215,6 +242,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
           { id: '_hdr_finance', label: 'Finance & Wallet Oversight', header: true, group: true },
           { id: 'sa_finance', label: 'Financial Controls & Pricing', icon: TrendingUp },
+          { id: 'financial_payroll', label: 'Payroll & Staff Invoices', icon: Wallet },
           { id: '_hdr_support', label: 'Messages & Support', header: true, group: true },
           { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
           { id: 'messaging_oversight', label: 'Message Insights & Oversight', icon: Eye },
@@ -256,10 +284,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // Exact brand colors specified:
   // Light mode sidebar: Green-700 (#15803D), text white
   // Dark mode sidebar: Slate-900 (#0F172A), text white/slate
-  const sidebarBgClass = theme === 'dark' ? 'bg-[#0F172A]' : 'bg-[#15803D]';
-  const sidebarBorderClass = theme === 'dark' ? 'border-slate-800' : 'border-[#166534]';
-  const activeBgClass = theme === 'dark' ? 'bg-slate-800 text-emerald-400 font-semibold' : 'bg-[#16A34A] text-white font-semibold';
-  const hoverClass = theme === 'dark' ? 'hover:bg-slate-800/60 text-slate-300 hover:text-white' : 'hover:bg-[#166534] text-white/90 hover:text-white';
+  const sidebarBgClass = theme === 'dark' ? 'bg-[#0F172A]' : 'bg-[#003827]';
+  const sidebarBorderClass = theme === 'dark' ? 'border-slate-800' : 'border-[#00281d]';
+  const activeBgClass = theme === 'dark' ? 'bg-slate-800 text-emerald-400 font-semibold' : 'bg-[#0B4A33] text-white font-semibold';
+  const hoverClass = theme === 'dark' ? 'hover:bg-slate-800/60 text-slate-300 hover:text-white' : 'hover:bg-[#0B4A33] text-white/90 hover:text-white';
 
   return (
     <>
@@ -381,22 +409,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             })}
           </div>
 
-          {/* Single Global AI Assistant Trigger */}
-          <div className="mt-6 pt-5 border-t border-white/15">
-            <button
-              onClick={() => {
-                setAiModalOpen(true);
-                onClose();
-              }}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-semibold bg-white/10 text-white hover:bg-white/20 transition-all border border-white/20 group"
-            >
-              <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4 text-emerald-300 group-hover:scale-110 transition-transform" />
-                <span>AI Agro Advisor</span>
-              </div>
-              <ChevronRight className="w-3.5 h-3.5 text-white/70" />
-            </button>
-          </div>
 
           {/* DriverApp session indicator if driver */}
           {currentRole === 'driver' && (

@@ -1,6 +1,9 @@
 """Part 21 — customer support module tests."""
 
 import pytest
+from django.core.exceptions import ValidationError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from support.models import SupportTicket, SupportTicketMessage
 from users.models import Role

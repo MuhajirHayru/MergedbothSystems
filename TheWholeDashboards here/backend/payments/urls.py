@@ -6,7 +6,8 @@ from .delivery_fee_review_api import (
     MarketplaceDeliveryFeeAgreementListView,
     MarketplaceDeliveryFeeReviewView,
 )
-from .views import PaymentViewSet
+from .bank_account_api import BankAccountDetailView, BankAccountListCreateView, PayoutBankListView
+from .views import LotMovementCreateView, MyLotsView, PaymentViewSet
 from .shipment_views import BuyerShipmentListView, BuyerShipmentDetailView
 from .freight_bid_views import (
     StaffFreightAssignView,
@@ -23,6 +24,15 @@ from .financial_api import (
     FinancialTransactionDetailView,
     ProfitAndLossView,
     EmployeeRegistryView,
+    StaffCompensationView,
+    RevenueSourceListView,
+    RevenueSourceUpdateView,
+    SubscriptionPlanListView,
+    SubscriptionPlanDeactivateView,
+    OtherRevenueView,
+    SubscribeView,
+    FinancialPayrollDetailView,
+    StaffAttendanceView,
     PayrollSummaryView,
 
     FinancialAccountListView,
@@ -44,6 +54,16 @@ from .financial_api import (
     RegionalFinancialReportView,
 )
 from .financial_reporting import FinancialReportView
+from .financial_statement import FinancialStatementView
+from .revenue_api import (
+    AdvertisingPackageListCreateView,
+    AdvertisingPurchaseView,
+    FreightSettlementListView,
+    RevenueChargeDetailView,
+    RevenueChargeListView,
+    RevenueMethodActionView,
+    RevenueMethodListCreateView,
+)
 
 router = DefaultRouter()
 # PATCH /api/v1/payments/{id}/verify/  (FR-FM-02)
@@ -59,7 +79,26 @@ urlpatterns = [
     path("financial/expenses/<uuid:pk>/review/", FinancialExpenseActionView.as_view(), name="financial-expense-review"),
     path("financial/payroll/", FinancialPayrollListView.as_view(), name="financial-payroll"),
     path("financial/payroll/summary/", PayrollSummaryView.as_view(), name="financial-payroll-summary"),
+    path("my-lots/", MyLotsView.as_view(), name="my-lots"),
+    path("subscribe/", SubscribeView.as_view(), name="subscribe"),
+
+    path("my-lots/<uuid:pk>/movements/", LotMovementCreateView.as_view(), name="my-lot-movement-create"),
     path("financial/employees/", EmployeeRegistryView.as_view(), name="financial-employees"),
+    path("financial/compensation/<uuid:user_id>/", StaffCompensationView.as_view(), name="financial-compensation"),
+    path("financial/revenue-methods/", RevenueMethodListCreateView.as_view(), name="financial-revenue-methods"),
+    path("financial/revenue-methods/<uuid:pk>/action/", RevenueMethodActionView.as_view(), name="financial-revenue-method-action"),
+    path("financial/revenue-charges/", RevenueChargeListView.as_view(), name="financial-revenue-charges"),
+    path("financial/revenue-charges/<uuid:pk>/", RevenueChargeDetailView.as_view(), name="financial-revenue-charge-detail"),
+    path("financial/freight-settlements/", FreightSettlementListView.as_view(), name="financial-freight-settlements"),
+    path("financial/advertising-packages/", AdvertisingPackageListCreateView.as_view(), name="financial-advertising-packages"),
+    path("financial/advertising-packages/<uuid:pk>/purchase/", AdvertisingPurchaseView.as_view(), name="financial-advertising-purchase"),
+    path("financial/revenue-sources/", RevenueSourceListView.as_view(), name="financial-revenue-sources"),
+    path("financial/revenue-sources/<str:source>/", RevenueSourceUpdateView.as_view(), name="financial-revenue-source-update"),
+    path("financial/subscription-plans/", SubscriptionPlanListView.as_view(), name="financial-subscription-plans"),
+    path("financial/subscription-plans/<uuid:pk>/deactivate/", SubscriptionPlanDeactivateView.as_view(), name="financial-subscription-plan-deactivate"),
+    path("financial/other-revenue/", OtherRevenueView.as_view(), name="financial-other-revenue"),
+    path("financial/payroll/<uuid:pk>/", FinancialPayrollDetailView.as_view(), name="financial-payroll-detail"),
+    path("financial/attendance/<uuid:user_id>/", StaffAttendanceView.as_view(), name="financial-attendance"),
     path("financial/payroll/<uuid:pk>/action/", FinancialPayrollActionView.as_view(), name="financial-payroll-action"),
     path("financial/accounts/", FinancialAccountListView.as_view(), name="financial-accounts"),
     path("financial/ledger/", FinancialLedgerListView.as_view(), name="financial-ledger"),
@@ -71,8 +110,12 @@ urlpatterns = [
     path("financial/freight-jobs/<uuid:pk>/assign/", StaffFreightAssignView.as_view(), name="staff_freight_assign"),
     path("financial/freight-jobs/<uuid:pk>/cancel/", StaffFreightCancelView.as_view(), name="staff_freight_cancel"),
     path("wishlist/", WishlistView.as_view(), name="wishlist"),
+    path("banks/", PayoutBankListView.as_view(), name="payout-banks"),
+    path("bank-accounts/", BankAccountListCreateView.as_view(), name="bank-accounts"),
+    path("bank-accounts/<uuid:pk>/", BankAccountDetailView.as_view(), name="bank-account-detail"),
     path("financial/summary/", FinancialSummaryView.as_view(), name="financial-summary"),
     path("financial/report/", FinancialReportView.as_view(), name="financial-report"),
+    path("financial/statement/", FinancialStatementView.as_view(), name="financial-statement"),
     path("financial/reconciliation/", FinancialReconciliationView.as_view(), name="financial-reconciliation"),
     path("financial/regional-report/", RegionalFinancialReportView.as_view(), name="financial-regional-report"),
     path("financial/refunds/", FinancialRefundListView.as_view(), name="financial-refunds"),

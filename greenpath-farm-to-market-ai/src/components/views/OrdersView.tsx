@@ -44,16 +44,24 @@ const STATUS_OPTIONS = [
   'Cancelled',
 ];
 
-export const OrdersView: React.FC = () => {
-  const { currentUser, setActiveView } = useApp();
+export const OrdersView: React.FC<{ initialTab?: Tab }> = ({ initialTab }) => {
+  const { currentUser, setActiveView, activeView } = useApp();
   const navigate = useNavigate();
 
   const [orders, setOrders] = useState<ApiOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<Tab>('incoming');
+  const [tab, setTab] = useState<Tab>(
+    initialTab || (activeView === 'order_history' ? 'purchases' : 'incoming')
+  );
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All statuses');
+
+  useEffect(() => {
+    if (activeView === 'order_history') {
+      setTab('purchases');
+    }
+  }, [activeView]);
 
   const meId = String(currentUser?.id || '');
 

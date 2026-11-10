@@ -22,6 +22,8 @@ from users.permissions import IsFinancialManager, IsWholesaler, IsAuthenticatedR
 
 from notifications.services import notify
 from greenpath.privacy import contains_restricted_content
+from .inventory_services import record_owner_movement
+from .models import StockLot
 from .models import (
     AgreementStatus,
     BankAccount,
@@ -309,6 +311,70 @@ class PaymentViewSet(
         return Response({"success": True, "receipt": record.generate_receipt()})
 
 
+class MyLotsView(APIView):
+    """GET /api/v1/payments/my-lots/ — the caller's inventory lots + movements."""
+
+    def get_permissions(self):
+        return [IsAuthenticatedRole((Role.WHOLESALER, Role.RETAILER))]
+
+    def get(self, request):
+        lots = StockLot.objects.filter(owner=request.user).select_related(
+            "product", "origin_order"
+        ).prefetch_related("movements").order_by("-created_at")
+        rows = []
+        for lot in lots:
+            rows.append({
+                "id": str(lot.pk),
+                "product": lot.product.title,
+                "product_id": str(lot.product_id),
+                "origin_order_reference": lot.origin_order.reference,
+                "quantity_purchased": str(lot.quantity_purchased),
+                "quantity_remaining": str(lot.quantity_remaining),
+                "unit": lot.unit,
+                "created_at": lot.created_at.isoformat(),
+                "movements": [
+                    {
+                        "type": m.movement_type, "quantity": str(m.quantity),
+                        "resale_order_reference": m.resale_order.reference if m.resale_order_id else None,
+                        "notes": m.notes, "date": m.created_at.isoformat(),
+                    }
+                    for m in lot.movements.all()
+                ],
+            })
+        return Response({"success": True, "lots": rows})
+
+
+class LotMovementCreateView(APIView):
+    """POST /api/v1/payments/my-lots/<pk>/movements/ — record SPOILAGE / ADJUSTMENT."""
+
+    def get_permissions(self):
+        return [IsAuthenticatedRole((Role.WHOLESALER, Role.RETAILER))]
+
+    def post(self, request, pk):
+        lot = StockLot.objects.select_related("owner").filter(pk=pk).first()
+        if lot is None:
+            raise NotFound("Lot not found.")
+        if lot.owner_id != request.user.id:
+            raise PermissionDenied("You can only record movements on your own lots.")
+        movement_type = request.data.get("movement_type")
+        if movement_type not in ("SPOILAGE", "ADJUSTMENT"):
+            raise ValidationError({"movement_type": "Use SPOILAGE or ADJUSTMENT."})
+        try:
+            movement = record_owner_movement(
+                lot, movement_type=movement_type,
+                quantity=request.data.get("quantity"),
+                notes=(request.data.get("notes") or "").strip(),
+                actor=request.user,
+            )
+        except ValueError as exc:
+            raise ValidationError({"quantity": str(exc)})
+        return Response({
+            "success": True,
+            "movement": {"type": movement.movement_type, "quantity": str(movement.quantity)},
+            "quantity_remaining": str(lot.quantity_remaining),
+        }, status=201)
+
+
 class OrderViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
@@ -381,18 +447,30 @@ class OrderViewSet(
         serializer.is_valid(raise_exception=True)
         product = serializer.validated_data["product"]
         buyer_role = request.user.role
+        # Supply-chain eligibility (master prompt §2): wholesalers buy from
+        # farmers OR resell from other wholesalers; retailers buy exclusively
+        # from wholesalers — never directly from a farmer/producer.
+        is_resale_purchase = (
+            buyer_role == Role.WHOLESALER
+            and product.product_type == ProductType.WHOLESALER_LISTING
+        )
         expected_type = (
-            ProductType.FARMER_LISTING
-            if buyer_role == Role.WHOLESALER
-            else ProductType.WHOLESALER_LISTING
+            ProductType.WHOLESALER_LISTING
+            if buyer_role == Role.RETAILER
+            else ProductType.FARMER_LISTING
         )
-        expected_seller_role = (
-            Role.FARMER if buyer_role == Role.WHOLESALER else Role.WHOLESALER
-        )
-        if product.product_type != expected_type:
+        allowed_types = {expected_type}
+        if buyer_role == Role.WHOLESALER:
+            allowed_types.add(ProductType.WHOLESALER_LISTING)
+        if product.product_type not in allowed_types:
             raise ValidationError(
                 "This product is not available to your role for purchase."
             )
+        expected_seller_role = (
+            Role.WHOLESALER
+            if product.product_type == ProductType.WHOLESALER_LISTING
+            else Role.FARMER
+        )
         if product.status != ProductStatus.ACTIVE:
             raise ValidationError("This listing is no longer active.")
         if product.owner == request.user:
@@ -410,6 +488,19 @@ class OrderViewSet(
             quantity = serializer.validated_data["quantity"]
             if quantity > locked.quantity:
                 raise ValidationError("Not enough quantity available.")
+            if locked.product_type == ProductType.WHOLESALER_LISTING and StockLot.objects.filter(owner=locked.owner).exists():
+                from .inventory_services import get_available_resale_quantity
+                available_resale = get_available_resale_quantity(locked.owner)
+                if quantity > available_resale:
+                    raise ValidationError(
+                        {
+                            "quantity": (
+                                "The seller can only resell "
+                                f"{available_resale} {locked.unit_of_measure or 'units'} of this "
+                                "product from their purchased inventory."
+                            )
+                        }
+                    )
             from users.models import PlatformSettings
             _config = PlatformSettings.load()
             if _config.maintenance_mode or _config.orders_disabled:
@@ -657,6 +748,76 @@ class OrderViewSet(
             )
         return data
 
+    @action(detail=True, methods=["get"], url_path="receipt")
+    def receipt(self, request, pk=None):
+        """Return the settled order's fee, payer, proceeds and ledger receipt."""
+        order = self.get_object()
+        from .financial_models import FinancialJournalEntry, FinancialOrderSnapshot, RevenueCharge
+
+        snapshot = FinancialOrderSnapshot.objects.filter(order=order).first()
+        if (
+            order.payment_status != OrderPaymentStatus.RELEASED
+            or order.status != OrderStatus.COMPLETED
+            or snapshot is None
+        ):
+            raise ValidationError(
+                {"receipt": "The settlement receipt is available after escrow is released and accounting is posted."}
+            )
+
+        charges = list(
+            RevenueCharge.objects.filter(
+                source_type=RevenueCharge.SourceType.ORDER,
+                source_reference=order.reference,
+            ).select_related("payer_user", "generating_user", "third_party_payee").order_by("created_at", "reference")
+        )
+        entries = FinancialJournalEntry.objects.filter(
+            order_reference=order.reference,
+            status=FinancialJournalEntry.Status.POSTED,
+        ).order_by("created_at", "reference")
+        return Response({
+            "success": True,
+            "receipt": {
+                "receipt_id": f"ORDER-{order.reference.lstrip('#')}",
+                "issued_at": snapshot.created_at,
+                "currency": snapshot.currency,
+                "order_reference": order.reference,
+                "payment_status": order.payment_status,
+                "seller": {"id": str(order.seller.pk), "name": order.seller.full_name, "role": order.seller.role},
+                "buyer": {"id": str(order.buyer.pk), "name": order.buyer.full_name, "role": order.buyer.role},
+                "product": order.product.title,
+                "quantity": str(order.quantity),
+                "gross_order_value": str(snapshot.gross_order_value),
+                "discount": str(order.discount_amount or Decimal("0.00")),
+                "escrow_released": str(order.payable_amount),
+                "commission": str(snapshot.commission_amount),
+                "buyer_fee": str(snapshot.buyer_fee_amount),
+                "tax": str(snapshot.tax_amount) if snapshot.tax_amount is not None else None,
+                "tax_payer": {
+                    "party": snapshot.tax_payer_party or None,
+                    "name": snapshot.tax_payer_user.full_name if snapshot.tax_payer_user_id else None,
+                },
+                "accounting_status": snapshot.status,
+                "seller_proceeds": str(snapshot.seller_proceeds),
+                "fees": [
+                    {
+                        "method": charge.method,
+                        "source": charge.source_type,
+                        "payer": charge.payer_party,
+                        "payer_name": charge.payer_user.full_name if charge.payer_user_id else charge.get_payer_party_display(),
+                        "generated_by": charge.generating_user.full_name if charge.generating_user_id else None,
+                        "amount_charged": str(charge.amount_charged),
+                        "amount_collected": str(charge.amount_collected),
+                        "company_earned": str(charge.amount_company_earned),
+                        "third_party_payable": str(charge.third_party_payable),
+                        "settlement_status": charge.settlement_status,
+                        "ledger_reference": charge.journal_entry.reference if charge.journal_entry_id else None,
+                    }
+                    for charge in charges
+                ],
+                "ledger_references": list(entries.values_list("reference", flat=True)),
+            },
+        })
+
     @action(detail=True, methods=["patch", "post"], url_path="status")
     def update_status(self, request, pk=None):
         """PATCH /api/v1/orders/{id}/status/ — advance the commercial lifecycle."""
@@ -755,7 +916,7 @@ class OrderViewSet(
                                 )
                             }
                         )
-                BusinessAgreement.objects.get_or_create(
+                business_agreement, agreement_created = BusinessAgreement.objects.get_or_create(
                     order=order,
                     defaults={
                         "terms": (
@@ -765,6 +926,13 @@ class OrderViewSet(
                         )
                     },
                 )
+                if agreement_created:
+                    from .financial_services import build_agreement_financial_terms_snapshot
+
+                    business_agreement.financial_terms_snapshot = build_agreement_financial_terms_snapshot(
+                        order, agreement=business_agreement, at=business_agreement.activated_at
+                    )
+                    business_agreement.save(update_fields=["financial_terms_snapshot"])
 
             try:
                 order.set_status(new_status)

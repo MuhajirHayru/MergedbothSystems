@@ -346,6 +346,14 @@ def test_order_escrow_release_is_exactly_once_and_review_is_verified(
     farmer_wallet = Wallet.objects.get(user=farmer)
     assert farmer_wallet.available_balance == Decimal("100.00")
 
+    api.force_authenticate(user=wholesaler)
+    order_receipt = api.get(f"/api/v1/orders/{order.id}/receipt/")
+    assert order_receipt.status_code == 200, order_receipt.data
+    assert order_receipt.data["receipt"]["order_reference"] == order.reference
+    assert order_receipt.data["receipt"]["escrow_released"] == str(order.payable_amount)
+    assert order_receipt.data["receipt"]["seller_proceeds"] == "100.00"
+
+    api.force_authenticate(user=financial_manager)
     duplicate = api.post(
         f"/api/v1/orders/{order.id}/release/",
         {"external_reference": "BANK-SETTLEMENT-001"},

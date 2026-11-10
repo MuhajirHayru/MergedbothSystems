@@ -14,6 +14,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from users.models import Role
+
 
 class SupportTicket(models.Model):
     class Status(models.TextChoices):
@@ -77,8 +79,10 @@ class SupportTicket(models.Model):
         super().save(*args, **kwargs)
 
     def clean(self):
+        # Must match the assignment rule enforced by support.views (STAFF_ROLES):
+        # a USER_ADMIN can review accounts but does not work the support inbox.
         if self.assigned_to_id and self.assigned_to.role not in (
-            "CUSTOMER_SUPPORT", "SUPER_ADMIN", "USER_ADMIN",
+            Role.CUSTOMER_SUPPORT, Role.SUPER_ADMIN,
         ):
             raise ValidationError({"assigned_to": "Only support staff can be assigned a ticket."})
 

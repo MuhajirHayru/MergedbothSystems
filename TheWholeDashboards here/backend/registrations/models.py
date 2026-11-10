@@ -37,6 +37,11 @@ class AdministrativeLocation(models.Model):
         related_name="children",
     )
     active = models.BooleanField(default=True)
+    # Optional regional insignia (emoji or short glyph). Child zones/weredas
+    # inherit the nearest ancestor region's flag for dashboard display.
+    flag = models.CharField(max_length=16, blank=True, default="")
+    # Uploaded regional flag picture (Super Admin / Top User Admin managed).
+    flag_image = models.ImageField(upload_to="location_flags/", blank=True, null=True)
     source_url = models.URLField(max_length=500, blank=True, default="")
     source_version = models.CharField(max_length=64, blank=True, default="")
     verified_on = models.DateField(null=True, blank=True)
@@ -424,9 +429,14 @@ class UserRegistration(models.Model):
 
     class Meta:
         db_table = "user_registrations"
+        # Paginated review queues need a total order: without the ``pk``
+        # tiebreaker, rows sharing a created_at timestamp can repeat on one page
+        # and vanish from the next.
+        ordering = ["-created_at", "pk"]
         indexes = [
             models.Index(fields=["status", "submitted_at"]),
             models.Index(fields=["location", "status"]),
+            models.Index(fields=["-created_at"]),
         ]
 
     def __str__(self):
@@ -554,12 +564,15 @@ class AdministratorScope(models.Model):
         blank=True,
         related_name="administrator_scopes",
     )
+    # ``None`` preserves the role's default dashboard access. A configured
+    # list is an explicit allow-list managed by a Top User Admin or Super Admin.
+    feature_flags = models.JSONField(null=True, blank=True, default=None)
 
     class Meta:
         db_table = "administrator_scopes"
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(level="GLOBAL", location__isnull=True)
                     | models.Q(level="LOCATION", location__isnull=False)
                 ),

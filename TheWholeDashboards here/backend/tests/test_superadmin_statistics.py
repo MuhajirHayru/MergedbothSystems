@@ -4,7 +4,8 @@ import pytest
 from django.utils import timezone
 from datetime import timedelta
 
-from products.models import ProductType
+from payments.models import PaymentRecord
+from products.models import Product, ProductType
 from users.models import Role
 
 from tests.conftest import make_user
@@ -82,6 +83,34 @@ def test_orders_are_mapped_to_the_seller_region(api, super_admin, order):
 
 
 @pytest.mark.django_db
+def test_regional_payment_sums_are_region_scoped(api, super_admin, farmer, farmer_b, wholesaler, farmer_product):
+    """Regression: verified-payment figures must be attributed per region.
+
+    Global totals repeated identically on every regional row made the
+    regional reports look fabricated (all 31 regions showed the same value).
+    """
+    product_b = Product.objects.create(
+        title="Maize", category="Grains", quantity=100, unit_of_measure="kg",
+        price_per_unit=20, owner=farmer_b, product_type=ProductType.FARMER_LISTING,
+        description="Bulk maize.",
+    )
+    PaymentRecord.objects.create(  # farmer in Amhara
+        submitted_by=wholesaler, farmer=farmer, product=farmer_product,
+        amount=1250, payment_method="CBE Birr", status="VERIFIED",
+    )
+    PaymentRecord.objects.create(  # farmer_b in Oromia
+        submitted_by=wholesaler, farmer=farmer_b, product=product_b,
+        amount=300, payment_method="CBE Birr", status="VERIFIED",
+    )
+    data = _get(api, super_admin).json()
+    rows = {r["region"]: r for r in data["regional"]}
+    assert float(rows["Amhara"]["verifiedPaymentValueETB"]) == 1250.0
+    assert float(rows["Oromia"]["verifiedPaymentValueETB"]) == 300.0
+    # The platform-wide financial block still reports the combined total.
+    assert float(data["financial"]["payments_by_status"]["VERIFIED"]) == 1550.0
+
+
+@pytest.mark.django_db
 def test_escrow_liability_from_wallets(api, super_admin, wholesaler, driver):
     data = _get(api, super_admin).json()
     # wholesaler wallet 100000 + driver wallet 500 available.
@@ -142,3 +171,44 @@ def test_zero_means_checked_and_empty(api, super_admin):
 def test_no_n_plus_one(api, super_admin, farmer, farmer_b, wholesaler, driver, order, django_assert_max_num_queries):
     with django_assert_max_num_queries(35):
         _get(api, super_admin)
+
+
+@pytest.mark.django_db
+def test_regional_rows_include_zone_and_wereda_breakdown(api, super_admin, farmer, farmer_b, wholesaler, farmer_product):
+    """Regression: zones used to be hardcoded empty — the ledger promised a
+    zonal drill-down that returned nothing."""
+    from payments.models import Order
+    from registrations.models import AdministrativeLocation, UserRegistration
+
+    # Give farmer a full REGION > ZONE > WOREDA hierarchy.
+    region_node = AdministrativeLocation.objects.create(
+        source_id="reg-amhara", name="Amhara", level="REGION",
+    )
+    zone_node = AdministrativeLocation.objects.create(
+        source_id="zone-gondar", name="Central Gondar", level="ZONE", parent=region_node,
+    )
+    wereda_node = AdministrativeLocation.objects.create(
+        source_id="wereda-dembiya", name="Dembiya", level="WOREDA", parent=zone_node,
+    )
+    UserRegistration.objects.create(user=farmer, location=wereda_node)
+
+    # One order whose seller is that farmer.
+    Order.objects.create(
+        reference="#ORD-ZONE-1", wholesaler=wholesaler, farmer=farmer,
+        product=farmer_product, quantity=2, total_amount=500, status="Processing",
+    )
+    data = _get(api, super_admin).json()
+    amhara = next(r for r in data["regional"] if r["region"] == "Amhara")
+    assert amhara["usersWithoutZoneDetail"] >= 0
+    assert len(amhara["zones"]) == 1
+    zone = amhara["zones"][0]
+    assert zone["zoneName"] == "Central Gondar"
+    assert zone["totalTransactions"] == 1
+    assert float(zone["totalValueETB"]) == 500.0
+    assert zone["usersCount"] >= 1
+    assert len(zone["weredas"]) == 1
+    wereda = zone["weredas"][0]
+    assert wereda["weredaName"] == "Dembiya"
+    assert float(wereda["totalValueETB"]) == 500.0
+    assert wereda["totalTransactions"] == 1
+    assert wereda["usersCount"] >= 1

@@ -96,7 +96,7 @@ export const FreightBidsPanel: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
           <Gavel className="w-4 h-4 text-emerald-600" /> Freight bidding — compare bids and assign drivers

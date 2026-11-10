@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { apiClient } from '../../services/apiClient';
+import { apiClient, api } from '../../services/apiClient';
 import { useApp } from '../../context/AppContext';
 import {
   Sparkles,
@@ -27,6 +27,8 @@ export const AiAssistantModal: React.FC = () => {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingTimer, setRecordingTimer] = useState<any>(null);
   const conversationRef = useRef<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const [messages, setMessages] = useState<
     Array<{ id: string; role: 'user' | 'assistant'; text: string; time: string; isAudio?: boolean }>
@@ -128,10 +130,16 @@ export const AiAssistantModal: React.FC = () => {
         });
         conversationRef.current = convoRes.data.id;
       }
-      const res = await apiClient.post(`/assistant/conversations/${conversationRef.current}/messages/`, {
-        content: prompt,
-        language,
-      });
+      // One key per send attempt: a double-click or a retry replays the stored
+      // reply instead of paying for a second completion.
+      const attemptKey = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `attempt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const res = await apiClient.post(
+        `/assistant/conversations/${conversationRef.current}/messages/`,
+        { content: prompt, language },
+        { headers: { 'Idempotency-Key': attemptKey } },
+      );
       const data = res.data;
       const botMsg = {
         id: `bot_${Date.now()}`,
@@ -154,19 +162,79 @@ export const AiAssistantModal: React.FC = () => {
     }
   };
 
-  const startVoiceRecording = () => {
-    setIsRecording(true);
-    setRecordingSeconds(0);
-    const timer = setInterval(() => {
-      setRecordingSeconds((prev) => prev + 1);
-    }, 1000);
-    setRecordingTimer(timer);
+  const startVoiceRecording = async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `err_${Date.now()}`,
+            role: 'assistant',
+            text: 'Microphone access is not supported by your browser.',
+            time: 'Just now',
+          },
+        ]);
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+        if (audioBlob.size > 100) {
+          try {
+            setLoading(true);
+            const file = new File([audioBlob], 'voice_inquiry.webm', { type: 'audio/webm' });
+            const transRes = await api.assistant.transcribe(file);
+            const transcribedText = transRes?.data?.text || transRes?.data?.transcript || '';
+            if (transcribedText.trim()) {
+              handleSend(transcribedText);
+            } else {
+              handleSend('Voice advisory inquiry submitted (Ethiopian Commodity Query)');
+            }
+          } catch {
+            handleSend('Voice advisory inquiry submitted (Ethiopian Commodity Query)');
+          } finally {
+            setLoading(false);
+          }
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      const timer = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+      setRecordingTimer(timer);
+    } catch (err: any) {
+      console.warn('Microphone permission denied or unavailable:', err);
+      setIsRecording(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `warn_${Date.now()}`,
+          role: 'assistant',
+          text: 'Microphone access was denied. You can continue asking questions using the text input below.',
+          time: 'Just now',
+        },
+      ]);
+    }
   };
 
   const stopVoiceRecording = () => {
     if (recordingTimer) clearInterval(recordingTimer);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
     setIsRecording(false);
-    handleSend('Voice advisory inquiry submitted (Ethiopian Commodity Query)');
     setRecordingSeconds(0);
   };
 
@@ -181,8 +249,11 @@ export const AiAssistantModal: React.FC = () => {
     ]);
   };
 
-  // Floating trigger button when closed
+  // Floating trigger button only for public landing page visitors.
+  // Authenticated users use the header button instead — the floating
+  // widget overlaps dashboard content and looks unprofessional.
   if (!aiModalOpen) {
+    if (currentRole !== 'public') return null;
     return (
       <button
         onClick={() => setAiModalOpen(true)}

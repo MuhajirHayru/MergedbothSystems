@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './context/AppContext';
 import { MessagingProvider } from './context/MessagingContext';
 import { Header } from './components/layout/Header';
@@ -9,7 +9,8 @@ import { LoginPage, RegisterPage, ForgotPasswordPage } from './components/views/
 import { MarketplaceView } from './components/views/MarketplaceView';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AiAssistantModal } from './components/common/AiAssistantModal';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { canAccessView, defaultViewForRole, VIEW_PATHS } from './lib/viewAccess';
+import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 // Route-level code splitting: dashboards and admin panels are the heaviest
 // modules (charts, tables). They load on demand; landing/auth/marketplace stay
@@ -55,13 +56,52 @@ const ViewFallback: React.FC = () => (
   </div>
 );
 
-const PUBLIC_VIEWS_FOR_GUARD = ['landing', 'login', 'register', 'forgot_password', 'marketplace'];
+// Single source of truth for the guard and the render gate. This list used to
+// be declared twice in this file (`PUBLIC_VIEWS_FOR_GUARD` and `PUBLIC_VIEWS`),
+// so adding a public screen could pass one check and fail the other.
+const PUBLIC_VIEWS = ['landing', 'login', 'register', 'forgot_password', 'marketplace'];
+
+const AccessDeniedView: React.FC<{ onHome: () => void }> = ({ onHome }) => (
+  <div className="p-8 max-w-2xl mx-auto text-center mt-16" role="alert">
+    <p className="text-xs font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">403 — Not available</p>
+    <h1 className="mt-2 text-2xl font-bold">This workspace is not available for your role</h1>
+    <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+      Your account is signed in, but this screen belongs to a different role. Use the menu to open your own workspace.
+    </p>
+    <button
+      type="button"
+      onClick={onHome}
+      className="mt-6 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+    >
+      Go to my workspace
+    </button>
+  </div>
+);
+
+const NotFoundView: React.FC<{ onHome: () => void }> = ({ onHome }) => (
+  <div className="p-8 max-w-2xl mx-auto text-center mt-16" role="alert">
+    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">404 — Not found</p>
+    <h1 className="mt-2 text-2xl font-bold">This page does not exist</h1>
+    <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+      The link may be out of date. Everything you can access is still available from the menu.
+    </p>
+    <button
+      type="button"
+      onClick={onHome}
+      className="mt-6 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+    >
+      Back to marketplace
+    </button>
+  </div>
+);
 
 const AppContent: React.FC = () => {
   const {
     activeView,
     setActiveView,
     notification,
+    notificationType,
+    dismissNotification,
     currentRole,
     setCurrentRole,
     authLoading,
@@ -73,20 +113,23 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Session restore loading gate
+  // Route guard: redirect unauthenticated users away from protected views and
+  // keep signed-in users inside the workspaces their role actually owns.
   useEffect(() => {
     if (authLoading) return;
-  }, [authLoading]);
-
-  // Route guard: redirect unauthenticated users away from protected views
-  useEffect(() => {
-    if (authLoading) return;
-    const publicViews = PUBLIC_VIEWS_FOR_GUARD;
-    if (!isAuthenticated && !publicViews.includes(activeView)) {
-      setActiveView('login');
-      navigate('/login', { replace: true });
+    if (!isAuthenticated) {
+      if (!PUBLIC_VIEWS.includes(activeView)) {
+        setActiveView('login');
+        navigate('/login', { replace: true });
+      }
+      return;
     }
-  }, [authLoading, isAuthenticated, activeView, setActiveView, navigate]);
+    if (!canAccessView(activeView, currentRole)) {
+      const fallback = defaultViewForRole(currentRole);
+      setActiveView(fallback);
+      navigate(VIEW_PATHS[fallback] || '/', { replace: true });
+    }
+  }, [authLoading, isAuthenticated, activeView, currentRole, setActiveView, navigate]);
 
   // Route map for syncing URL path with internal state
   const pathToViewMap: Record<string, string> = {
@@ -100,6 +143,16 @@ const AppContent: React.FC = () => {
     '/retailer': 'retailer_dashboard',
     '/driver': 'driver_dashboard',
     '/financial-manager': 'financial_dashboard',
+    '/financial-manager/statement': 'financial_statement',
+    '/financial-manager/controls': 'financial_controls',
+    '/financial-manager/verification': 'payment_verification',
+    '/financial-manager/wallets': 'wallet_management',
+    '/financial-manager/funding': 'funding_requests',
+    '/financial-manager/bank-accounts': 'bank_accounts',
+    '/financial-manager/delivery-fees': 'financial_delivery_fees',
+    '/financial-manager/expenses': 'financial_expenses',
+    '/financial-manager/payroll': 'financial_payroll',
+    '/financial-manager/ledger': 'financial_ledger',
     '/discounts': 'discount_management',
     '/support': 'support_management',
     '/controls': 'account_control',
@@ -149,11 +202,16 @@ const AppContent: React.FC = () => {
     messaging_oversight: '/messaging-oversight',
     logistics_dashboard: '/logistics-dashboard',
     freight_bids: '/freight-bids',
-    financial_controls: '/financial-manager#financial-controls',
-    payment_verification: '/financial-manager',
-    wallet_management: '/financial-manager',
-    funding_requests: '/financial-manager',
-    bank_accounts: '/financial-manager',
+    financial_statement: '/financial-manager/statement',
+    financial_controls: '/financial-manager/controls',
+    payment_verification: '/financial-manager/verification',
+    wallet_management: '/financial-manager/wallets',
+    funding_requests: '/financial-manager/funding',
+    bank_accounts: '/financial-manager/bank-accounts',
+    financial_delivery_fees: '/financial-manager/delivery-fees',
+    financial_expenses: '/financial-manager/expenses',
+    financial_payroll: '/financial-manager/payroll',
+    financial_ledger: '/financial-manager/ledger',
     user_admin_dashboard: '/admin',
     pending_registrations: '/admin',
     all_users: '/admin',
@@ -164,6 +222,7 @@ const AppContent: React.FC = () => {
     sa_content: '/super-admin',
     sa_security: '/super-admin',
     sa_finance: '/super-admin',
+    sa_revenue: '/super-admin',
     scarcity_monitoring: '/super-admin',
     regional_analytics: '/reports/regional',
     all_users_wholesalers: '/admin',
@@ -184,20 +243,29 @@ const AppContent: React.FC = () => {
 
   // All Super Admin dashboard tab views share the /super-admin path; a tab
   // view must not be clobbered back to the overview by the URL sync below.
-  const SA_DASHBOARD_VIEWS = ['super_admin_dashboard', 'sa_categories', 'sa_content', 'sa_security', 'sa_finance', 'scarcity_monitoring'];
+  const SA_DASHBOARD_VIEWS = ['super_admin_dashboard', 'sa_categories', 'sa_content', 'sa_security', 'sa_finance', 'sa_revenue', 'scarcity_monitoring'];
   const SHARED_PATH_VIEWS: Record<string, string[]> = {
     '/super-admin': SA_DASHBOARD_VIEWS,
     '/reports/regional': ['reports_regional', 'regional_analytics'],
-    '/admin': ['user_admin_dashboard', 'pending_registrations', 'all_users', 'all_users_wholesalers'],
+    '/admin': ['user_admin_dashboard', 'pending_registrations', 'all_users', 'all_users_wholesalers', 'regional_hierarchy'],
+    '/top-user-admin': ['top_user_dashboard', 'regional_hierarchy'],
   };
+
+  // A trailing slash must not turn a real deep link into a 404.
+  const normalizedPath = location.pathname.length > 1
+    ? location.pathname.replace(/\/+$/, '')
+    : location.pathname;
+  const unknownPath = !orderDetailMatch
+    && !(normalizedPath in pathToViewMap)
+    && !(normalizedPath in SHARED_PATH_VIEWS);
 
   // Sync route change with activeView
   useEffect(() => {
     const matchedView = orderDetailMatch
       ? 'orders'
-      : pathToViewMap[location.pathname];
+      : pathToViewMap[normalizedPath];
     if (matchedView && matchedView !== activeView) {
-      const equivalents = SHARED_PATH_VIEWS[location.pathname];
+      const equivalents = SHARED_PATH_VIEWS[normalizedPath];
       if (equivalents && equivalents.includes(activeView)) return;
       if (matchedView === 'super_admin_dashboard' && SA_DASHBOARD_VIEWS.includes(activeView)) return;
       setActiveView(matchedView);
@@ -225,14 +293,22 @@ const AppContent: React.FC = () => {
     }
   }, [activeView]);
 
-  const PUBLIC_VIEWS = ['landing', 'login', 'register', 'forgot_password', 'marketplace'];
-
   const renderCurrentView = () => {
     // Never mount a dashboard before the restored session is confirmed: those
     // screens assume an authenticated profile, and rendering them mid-restore
     // used to blank the whole app (e.g. with an expired token).
     if (!isAuthenticated && !PUBLIC_VIEWS.includes(activeView)) {
       return <LoginPage />;
+    }
+
+    // Known URLs render a view; anything else gets an explicit not-found
+    // instead of silently showing the landing page under a broken link.
+    if (unknownPath) {
+      return <NotFoundView onHome={() => setActiveView('marketplace')} />;
+    }
+
+    if (isAuthenticated && !canAccessView(activeView, currentRole)) {
+      return <AccessDeniedView onHome={() => setActiveView(defaultViewForRole(currentRole))} />;
     }
 
     switch (activeView) {
@@ -260,12 +336,26 @@ const AppContent: React.FC = () => {
       case 'driver_waybills':
         return <DriverDashboard />;
       case 'financial_dashboard':
+        return <FinancialManagerDashboard initialTab="financial_overview" />;
+      case 'financial_statement':
+        return <FinancialManagerDashboard initialTab="statement" />;
       case 'financial_controls':
+        return <FinancialManagerDashboard initialTab="financial_controls" />;
       case 'payment_verification':
-      case 'wallet_management':
       case 'funding_requests':
+        return <FinancialManagerDashboard initialTab="verification" />;
+      case 'wallet_management':
+        return <FinancialManagerDashboard initialTab="wallet_mgmt" />;
       case 'bank_accounts':
-        return <FinancialManagerDashboard />;
+        return <FinancialManagerDashboard initialTab="bank_accounts" />;
+      case 'financial_delivery_fees':
+        return <FinancialManagerDashboard initialTab="delivery_fees" />;
+      case 'financial_expenses':
+        return <FinancialManagerDashboard initialTab="expenses" />;
+      case 'financial_payroll':
+        return <FinancialManagerDashboard initialTab="payroll" />;
+      case 'financial_ledger':
+        return <FinancialManagerDashboard initialTab="ledger" />;
       case 'discount_management':
         return <DiscountManagementView />;
       case 'support_management':
@@ -314,6 +404,8 @@ const AppContent: React.FC = () => {
         return <SuperAdminDashboard initialTab="security" />;
       case 'sa_finance':
         return <SuperAdminDashboard initialTab="finance" />;
+      case 'sa_revenue':
+        return <SuperAdminDashboard initialTab="revenue" />;
       case 'scarcity_monitoring':
         return <ScarcityMonitor />;
       case 'regional_analytics':
@@ -362,9 +454,33 @@ const AppContent: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col text-slate-900 dark:text-slate-100 font-sans transition-colors duration-150">
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed top-4 right-4 z-50 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center gap-2.5 border border-slate-700 dark:border-slate-300 animate-in fade-in slide-in-from-top-2 duration-150">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
-          <span>{notification}</span>
+        <div
+          role={notificationType === 'error' ? 'alert' : 'status'}
+          aria-live={notificationType === 'error' ? 'assertive' : 'polite'}
+          className={`fixed top-4 right-4 z-50 max-w-md px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center gap-2.5 border animate-in fade-in slide-in-from-top-2 duration-150 ${
+            notificationType === 'error'
+              ? 'bg-rose-950 text-rose-50 border-rose-700'
+              : notificationType === 'info'
+                ? 'bg-sky-950 text-sky-50 border-sky-700'
+                : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-700 dark:border-slate-300'
+          }`}
+        >
+          {notificationType === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
+          ) : notificationType === 'info' ? (
+            <Info className="w-4 h-4 text-sky-300 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
+          )}
+          <span className="flex-1">{notification}</span>
+          <button
+            type="button"
+            onClick={dismissNotification}
+            aria-label="Dismiss notification"
+            className="p-1 rounded hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

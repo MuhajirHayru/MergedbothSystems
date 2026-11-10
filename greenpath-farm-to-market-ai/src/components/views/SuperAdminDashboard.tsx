@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../services/apiClient';
 import { SuperAdminOverview } from './SuperAdminOverview';
+import { RevenueMethodsPanel } from './RevenueMethodsPanel';
 import { formatApiError } from '../../lib/apiErrors';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { ConfirmDialog, ReasonDialog } from '../common/ConfirmDialog';
 import { useApp } from '../../context/AppContext';
 import {
   Shield, LayoutDashboard, Globe, Lock, Layers, Wallet, Activity,
@@ -18,13 +20,13 @@ const SECTION_TITLE = 'text-sm font-bold text-slate-900 dark:text-slate-100';
 const SECTION_HINT = 'text-xs text-slate-500 dark:text-slate-400 mt-0.5';
 const LABEL = 'block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5';
 const INPUT =
-  'w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors';
+  'w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors';
 const BTN_PRIMARY =
   'inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900';
 const BTN_DANGER =
   'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition-colors disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400';
 
-type TabId = 'overview' | 'content' | 'security' | 'categories' | 'finance' | 'health';
+type TabId = 'overview' | 'content' | 'security' | 'categories' | 'finance' | 'revenue' | 'health';
 
 export type { TabId };
 
@@ -34,6 +36,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'security', label: 'Security Policies', icon: Lock },
   { id: 'categories', label: 'Product Categories', icon: Layers },
   { id: 'finance', label: 'Financial Controls', icon: Wallet },
+  { id: 'revenue', label: 'Revenue Methods', icon: Wallet },
   { id: 'health', label: 'System Health', icon: Activity },
 ];
 
@@ -44,6 +47,8 @@ const STATUS_PILL: Record<string, string> = {
   ACTIVE: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
   INACTIVE: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
   operational: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+  configured: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+  not_configured: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   degraded: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   down: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300',
 };
@@ -57,19 +62,47 @@ const Pill = ({ value }: { value: string }) => (
 export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialTab }) => {
   const { platformConfig, updatePlatformConfig, setNotification, setActiveView } = useApp();
 
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab ?? 'overview');
+  const tabFromHash = (): TabId | null => {
+    const hash = window.location.hash.replace(/^#/, '');
+    return TABS.some((tab) => tab.id === hash) ? (hash as TabId) : null;
+  };
+  const [activeTab, setActiveTab] = useState<TabId>(() => tabFromHash() ?? initialTab ?? 'overview');
 
   // Sidebar entries deep-link into a specific tab; keep state in sync when the
-  // same mounted component receives a different initialTab.
+  // same mounted component receives a different initialTab. The first render
+  // must not clobber a tab restored from the URL hash.
+  const initialTabRef = useRef(initialTab);
   useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
+    if (initialTab && initialTab !== initialTabRef.current) {
+      initialTabRef.current = initialTab;
+      setActiveTab(initialTab);
+    }
   }, [initialTab]);
+
+  const tabViewMap: Partial<Record<TabId, string>> = {
+    overview: 'super_admin_dashboard',
+    content: 'sa_content',
+    security: 'sa_security',
+    categories: 'sa_categories',
+    finance: 'sa_finance',
+  };
+
+  const handleTabChange = (id: TabId) => {
+    setActiveTab(id);
+    const view = tabViewMap[id];
+    if (view) setActiveView(view);
+    // Deep-linkable/reload-safe tab state without a second navigation.
+    const hash = id === 'overview' ? '' : `#${id}`;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`);
+  };
   const [refreshKey, setRefreshKey] = useState(0);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   /* ---------- Financial controls state ---------- */
   const [financialRows, setFinancialRows] = useState<any[]>([]);
   const [deliveryPricingRows, setDeliveryPricingRows] = useState<any[]>([]);
+  const [deliveryPricingFilter, setDeliveryPricingFilter] = useState<'ACTIVE' | 'INACTIVE' | 'ALL'>('ACTIVE');
+  const [businessAgreements, setBusinessAgreements] = useState<any[]>([]);
   const [regionOptions, setRegionOptions] = useState<{ id: string; name: string; parent?: string | null }[]>([]);
   const [financialLoading, setFinancialLoading] = useState(false);
   const [draftError, setDraftError] = useState('');
@@ -80,13 +113,14 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [pricingForm, setPricingForm] = useState({ name: '', pricing_model: 'A', fee_type: 'FIXED', fee_value: '', minimum_fee: '0', maximum_fee: '', category: '*', region: '', zone: '', wereda: '', vehicle_category: '*', business_agreement_reference: '', effective_from: new Date().toISOString().slice(0, 16), effective_to: '' });
-  const [configKind, setConfigKind] = useState<'DELIVERY' | 'COMMISSION' | 'TAX'>('DELIVERY');
+  const [configKind, setConfigKind] = useState<'COMMISSION' | 'TAX'>('COMMISSION');
   const [configName, setConfigName] = useState('');
   const [configReason, setConfigReason] = useState('');
   const [configSource, setConfigSource] = useState('');
   const [configSourceUrl, setConfigSourceUrl] = useState('');
-  const [configRules, setConfigRules] = useState('{\n  "status": "PROVISIONAL"\n}');
-
+  const [guidedRule, setGuidedRule] = useState({ seller_role: '*', buyer_role: '*', product_type: '*', calculation: 'percentage', value: '2', buyer_fee_enabled: false, buyer_fee_rate: '1', fee_payer: 'seller' });
+  const [showAdvancedRules, setShowAdvancedRules] = useState(false);
+  const [configRules, setConfigRules] = useState('');
   /* ---------- Website content form state ---------- */
   const [platformTitle, setPlatformTitle] = useState(platformConfig.platformTitle);
   const [amharicTitle, setAmharicTitle] = useState(platformConfig.amharicTitle);
@@ -114,8 +148,13 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
   const [healthError, setHealthError] = useState('');
 
   /* ---------- Handlers ---------- */
-  const handleSaveContent = async (e: React.FormEvent) => {
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  const handleSaveContent = (e: React.FormEvent) => {
     e.preventDefault();
+    setConfirmPublish(true);
+  };
+
+  const saveContent = async () => {
     setSavingContent(true);
     try {
       await updatePlatformConfig({
@@ -128,6 +167,9 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
           heroHeadline, heroSubtitle, aboutDescription,
         },
       });
+      setConfirmPublish(false);
+    } catch {
+      /* updatePlatformConfig already surfaced and rolled back the error */
     } finally {
       setSavingContent(false);
     }
@@ -160,6 +202,9 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
       })
       .catch((err) => setListError(formatApiError(err, 'Financial configurations could not be loaded.')))
       .finally(() => setFinancialLoading(false));
+    api.wallet.agreements()
+      .then((agreements) => setBusinessAgreements(Array.isArray(agreements.data) ? agreements.data : agreements.data?.results || []))
+      .catch(() => setBusinessAgreements([]));
   };
 
   useEffect(() => {
@@ -168,9 +213,49 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  const guidedRuleJson = useMemo(() => {
+    const rule: Record<string, string> = {
+      seller_role: guidedRule.seller_role,
+      buyer_role: guidedRule.buyer_role,
+      product_type: guidedRule.product_type,
+      calculation: configKind === 'TAX' ? 'percentage' : guidedRule.calculation,
+    };
+    if (configKind === 'TAX') rule.fee_payer = guidedRule.fee_payer;
+    const amount = Number(guidedRule.value);
+    if (configKind === 'TAX' || guidedRule.calculation === 'percentage') rule.rate = String(amount / 100);
+    else if (guidedRule.calculation === 'fixed') rule.fixed_fee = guidedRule.value;
+    else { rule.unit_fee = guidedRule.value; rule.unit = 'quintal'; }
+    if (configKind === 'COMMISSION' && guidedRule.buyer_fee_enabled) {
+      rule.buyer_fee_calculation = 'percentage';
+      rule.buyer_fee_rate = String(Number(guidedRule.buyer_fee_rate) / 100);
+    }
+    return JSON.stringify({ rules: [rule] }, null, 2);
+  }, [configKind, guidedRule]);
+
   const rulesJsonValid = useMemo(() => {
-    try { JSON.parse(configRules); return true; } catch { return false; }
-  }, [configRules]);
+    const ratePercentValid = (value: string) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 100;
+    if (!showAdvancedRules) return (configKind === 'TAX' || guidedRule.calculation === 'percentage'
+      ? ratePercentValid(guidedRule.value)
+      : Number.isFinite(Number(guidedRule.value)) && Number(guidedRule.value) >= 0)
+      && (!guidedRule.buyer_fee_enabled || ratePercentValid(guidedRule.buyer_fee_rate));
+    try {
+      const rules = JSON.parse(configRules)?.rules;
+      return Array.isArray(rules) && rules.length > 0 && rules.every((rule: any) => {
+        if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return false;
+        for (const field of ['rate', 'buyer_fee_rate']) {
+          if (field in rule && (!Number.isFinite(Number(rule[field])) || Number(rule[field]) < 0 || Number(rule[field]) > 1)) return false;
+        }
+        if (configKind === 'TAX') return 'rate' in rule && (!rule.fee_payer || ['seller', 'buyer', 'requesting_party', 'contractual_party'].includes(String(rule.fee_payer).toLowerCase()));
+        return ['percentage', 'fixed', 'per_unit'].includes(String(rule.calculation || 'percentage').toLowerCase())
+          && ['none', 'percentage', 'fixed', 'per_unit'].includes(String(rule.buyer_fee_calculation || 'none').toLowerCase())
+          && (String(rule.calculation || '').toLowerCase() !== 'per_unit' || !rule.unit || String(rule.unit).toLowerCase() === 'quintal');
+      });
+    } catch { return false; }
+  }, [configKind, configRules, guidedRule.buyer_fee_enabled, guidedRule.buyer_fee_rate, guidedRule.calculation, guidedRule.value, showAdvancedRules]);
+
+  const visibleDeliveryPricingRows = useMemo(() => deliveryPricingRows.filter((row) => (
+    deliveryPricingFilter === 'ALL' || (deliveryPricingFilter === 'ACTIVE') === Boolean(row.active)
+  )), [deliveryPricingFilter, deliveryPricingRows]);
 
   const handleCreateFinancialDraft = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -179,14 +264,14 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
     try {
       const response = await api.financialControls.createConfiguration({
         kind: configKind, name: configName.trim(), reason: configReason.trim(),
-        rules: JSON.parse(configRules), effective_from: new Date().toISOString(),
+        rules: JSON.parse(showAdvancedRules ? configRules : guidedRuleJson), effective_from: new Date().toISOString(),
         source: configSource, source_url: configSourceUrl,
       });
       setFinancialRows((rows) => [response.data, ...rows]);
       setConfigName(''); setConfigReason('');
       setNotification?.('Financial configuration draft saved; approval is required before use.');
     } catch (err) {
-      setDraftError(err instanceof SyntaxError ? 'Rules must be valid JSON — check the syntax.' : formatApiError(err, 'Financial configuration could not be saved.'));
+      setDraftError(err instanceof SyntaxError ? 'Check the rule values and try again.' : formatApiError(err, 'Financial configuration could not be saved.'));
     } finally {
       setSavingDraft(false);
     }
@@ -195,9 +280,51 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
   const createDeliveryPricing = async (event: React.FormEvent) => {
     event.preventDefault();
     setPricingError('');
+    const feeValue = Number(pricingForm.fee_value);
+    const minimum = Number(pricingForm.minimum_fee || 0);
+    const maximum = Number(pricingForm.maximum_fee);
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!Number.isFinite(feeValue) || feeValue <= 0) {
+      setPricingError('Fee value must be greater than zero.');
+      return;
+    }
+    if (pricingForm.fee_type === 'PERCENTAGE' && feeValue > 100) {
+      setPricingError('A percentage fee cannot exceed 100%.');
+      return;
+    }
+    if (!Number.isFinite(minimum) || minimum < 0) {
+      setPricingError('Minimum fee must be zero or greater.');
+      return;
+    }
+    if (!Number.isFinite(maximum) || maximum <= 0) {
+      setPricingError('Maximum fee must be greater than zero.');
+      return;
+    }
+    if (maximum < minimum) {
+      setPricingError('Maximum fee cannot be lower than the minimum fee.');
+      return;
+    }
+    if (pricingForm.zone.trim() && !uuidPattern.test(pricingForm.zone.trim())) {
+      setPricingError('Zone must be a valid location UUID, or left blank for all zones.');
+      return;
+    }
+    if (pricingForm.wereda.trim() && !uuidPattern.test(pricingForm.wereda.trim())) {
+      setPricingError('Wereda must be a valid location UUID, or left blank for all weredas.');
+      return;
+    }
+    const from = new Date(pricingForm.effective_from);
+    const to = pricingForm.effective_to ? new Date(pricingForm.effective_to) : null;
+    if (Number.isNaN(from.getTime())) {
+      setPricingError('Choose a valid start date and time.');
+      return;
+    }
+    if (to && (Number.isNaN(to.getTime()) || to <= from)) {
+      setPricingError('The end date must be after the start date.');
+      return;
+    }
     setSavingPricing(true);
     try {
-      const payload = { ...pricingForm, effective_from: new Date(pricingForm.effective_from).toISOString(), effective_to: pricingForm.effective_to ? new Date(pricingForm.effective_to).toISOString() : null, region: pricingForm.region || null, zone: pricingForm.zone || null, wereda: pricingForm.wereda || null };
+      const payload = { ...pricingForm, effective_from: from.toISOString(), effective_to: to ? to.toISOString() : null, region: pricingForm.region || null, zone: pricingForm.zone.trim() || null, wereda: pricingForm.wereda.trim() || null };
       const response = await api.financialControls.createDeliveryPricing(payload);
       setDeliveryPricingRows((rows) => [response.data, ...rows]);
       setNotification?.('Delivery pricing rule saved to the backend.');
@@ -213,8 +340,9 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
     setApprovingId(id);
     try {
       const response = await api.financialControls.approveConfiguration(id);
-      setFinancialRows((rows) => rows.map((row) => row.id === id ? response.data : row));
+      setFinancialRows((rows) => rows.map((row) => (row.id === id ? response.data : row)));
       setNotification?.('Configuration approved and now in force.');
+      setApproveTarget(null);
     } catch (err) {
       setListError(formatApiError(err, 'Financial configuration could not be approved.'));
     } finally {
@@ -222,18 +350,27 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
     }
   };
 
-  const deactivatePricingRule = async (id: string) => {
+  const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
+  const [deactivateReason, setDeactivateReason] = useState('');
+  const [deactivateError, setDeactivateError] = useState('');
+
+  const deactivatePricingRule = async (id: string, reason: string) => {
     setDeactivatingId(id);
+    setDeactivateError('');
     try {
-      const response = await api.financialControls.deliveryPricingAction(id, { reason: 'Superseded by Super Admin' });
-      setDeliveryPricingRows((rows) => rows.map((item) => item.id === id ? response.data : item));
+      const response = await api.financialControls.deliveryPricingAction(id, { reason });
+      setDeliveryPricingRows((rows) => rows.map((item) => (item.id === id ? response.data : item)));
       setNotification?.('Rule deactivated for future agreements.');
+      setDeactivateTarget(null);
+      setDeactivateReason('');
     } catch (err) {
-      setListError(formatApiError(err, 'Rule could not be deactivated.'));
+      setDeactivateError(formatApiError(err, 'Rule could not be deactivated.'));
     } finally {
       setDeactivatingId(null);
     }
   };
+
+  const [approveTarget, setApproveTarget] = useState<any | null>(null);
 
   useEffect(() => {
     if (activeTab !== 'categories') return;
@@ -393,7 +530,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     e.preventDefault();
     const next = (index + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
-    setActiveTab(TABS[next].id);
+    handleTabChange(TABS[next].id);
     tabRefs.current[TABS[next].id]?.focus();
   };
 
@@ -435,9 +572,8 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
             role="tab"
             id={`sa-tab-${id}`}
             aria-selected={activeTab === id}
-            aria-controls={`sa-panel-${id}`}
             tabIndex={activeTab === id ? 0 : -1}
-            onClick={() => setActiveTab(id)}
+            onClick={() => handleTabChange(id)}
             onKeyDown={(e) => onTabKeyDown(e, index)}
             className={`px-3.5 py-2.5 border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-t-md ${
               activeTab === id
@@ -455,6 +591,13 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
         <div role="tabpanel" id="sa-panel-overview" aria-labelledby="sa-tab-overview" hidden={activeTab !== 'overview'}>
           {activeTab === 'overview' && <SuperAdminOverview onNavigate={setActiveView} refreshKey={refreshKey} />}
         </div>
+
+        {/* ============ TAB: Revenue Methods & Payer Responsibility ============ */}
+        {activeTab === 'revenue' && (
+          <div role="tabpanel" id="sa-panel-revenue" aria-labelledby="sa-tab-revenue">
+            <RevenueMethodsPanel />
+          </div>
+        )}
 
         {/* ============ TAB: Website Content CMS ============ */}
         {activeTab === 'content' && (
@@ -671,37 +814,133 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
               )}
 
               {/* Rule draft */}
-              <form onSubmit={handleCreateFinancialDraft} className={`${CARD} p-6 space-y-4 max-w-4xl`}>
-                <div>
-                  <h3 className={SECTION_TITLE}>Financial rule draft</h3>
-                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 flex items-start gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                    Rates and amounts remain provisional until approved. Tax rules require an authoritative source and URL.
-                  </p>
+              <form onSubmit={handleCreateFinancialDraft} className={`${CARD} p-5 sm:p-7 space-y-6 max-w-6xl`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-400">Marketplace revenue</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">Commission &amp; tax rules</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Create a rule proposal for order settlement.</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Drafts charge nobody
+                  </span>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  A saved proposal is inactive until approved by Super Admin. Once approved, it is applied when an eligible completed order is financially posted after buyer confirmation and payment release. Tax proposals need an authoritative source and URL.
                 </div>
                 {draftError && <div role="alert" className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{draftError}</div>}
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className="grid md:grid-cols-2 gap-x-5 gap-y-4">
                   <div>
                     <label htmlFor="fin-kind" className={LABEL}>Rule type</label>
-                    <select id="fin-kind" value={configKind} onChange={(e) => setConfigKind(e.target.value as any)} className={INPUT}>
-                      <option value="DELIVERY">Delivery pricing</option>
+                    <select id="fin-kind" value={configKind} onChange={(e) => setConfigKind(e.target.value as 'COMMISSION' | 'TAX')} className={INPUT}>
                       <option value="COMMISSION">Marketplace commission</option>
                       <option value="TAX">Tax</option>
                     </select>
                   </div>
                   <div>
                     <label htmlFor="fin-name" className={LABEL}>Rule name</label>
-                    <input id="fin-name" required value={configName} onChange={(e) => setConfigName(e.target.value)} placeholder="e.g., Q3 commission adjustment" className={INPUT} />
+                    <input id="fin-name" required value={configName} onChange={(e) => setConfigName(e.target.value)} placeholder={configKind === 'TAX' ? 'e.g., Approved agricultural tax rate' : 'e.g., Farmer marketplace commission'} className={INPUT} />
                   </div>
                   <div className="md:col-span-2">
-                    <label htmlFor="fin-rules" className={LABEL}>
-                      Rules (JSON) <span className={`ml-2 font-normal ${rulesJsonValid ? 'text-emerald-600' : 'text-rose-500'}`}>{rulesJsonValid ? '✓ valid JSON' : '✗ invalid JSON'}</span>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">Rule definition</h4>
+                    <p className={SECTION_HINT}>Choose who and what the rule applies to, then set how its amount is calculated. You do not need to write JSON.</p>
+                  </div>
+                  <fieldset className="md:col-span-2 rounded-xl border border-slate-200 p-4 sm:p-5 dark:border-slate-800">
+                    <legend className="px-1 text-xs font-bold text-slate-800 dark:text-slate-100">Who and what does this rule apply to?</legend>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div>
+                        <label htmlFor="fin-seller-role" className={LABEL}>Seller</label>
+                        <select id="fin-seller-role" value={guidedRule.seller_role} onChange={(e) => setGuidedRule({ ...guidedRule, seller_role: e.target.value })} className={INPUT}>
+                          <option value="*">Any seller</option><option value="FARMER">Farmer</option><option value="WHOLESALER">Wholesaler</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="fin-buyer-role" className={LABEL}>Buyer</label>
+                        <select id="fin-buyer-role" value={guidedRule.buyer_role} onChange={(e) => setGuidedRule({ ...guidedRule, buyer_role: e.target.value })} className={INPUT}>
+                          <option value="*">Any buyer</option><option value="WHOLESALER">Wholesaler</option><option value="RETAILER">Retailer/reseller</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="fin-product-type" className={LABEL}>Seller’s listing</label>
+                        <select id="fin-product-type" value={guidedRule.product_type} onChange={(e) => setGuidedRule({ ...guidedRule, product_type: e.target.value })} className={INPUT}>
+                          <option value="*">Any listing</option><option value="FARMER_LISTING">Farmer listing</option><option value="WHOLESALER_LISTING">Wholesaler listing</option>
+                        </select>
+                      </div>
+                    </div>
+                  </fieldset>
+                  {configKind === 'TAX' && (
+                    <div>
+                      <label htmlFor="fin-tax-payer" className={LABEL}>Who pays this tax?</label>
+                      <select id="fin-tax-payer" value={guidedRule.fee_payer} onChange={(e) => setGuidedRule({ ...guidedRule, fee_payer: e.target.value })} className={INPUT}>
+                        <option value="seller">Seller pays</option><option value="buyer">Buyer pays</option>
+                        <option value="requesting_party">Requesting party pays (buyer)</option><option value="contractual_party">Contractually assigned party pays</option>
+                      </select>
+                      <p className={SECTION_HINT}>Tax payer is set independently from commission payer. Contractual payer requires a named party on the order agreement.</p>
+                    </div>
+                  )}
+                  <div>
+                    <label htmlFor="fin-calculation" className={LABEL}>{configKind === 'TAX' ? 'Tax calculation' : 'Commission calculation'}</label>
+                    {configKind === 'TAX' ? (
+                      <div className={`${INPUT} flex items-center bg-slate-100 dark:bg-slate-800/70`}>Percentage of commission</div>
+                    ) : (
+                      <select id="fin-calculation" value={guidedRule.calculation} onChange={(e) => setGuidedRule({ ...guidedRule, calculation: e.target.value })} className={INPUT}>
+                      <option value="percentage">Percentage of order value</option><option value="fixed">Fixed amount per order</option><option value="per_unit">Amount per quintal</option>
+                      </select>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor="fin-rate" className={LABEL}>
+                      {configKind === 'TAX' ? 'Tax rate (%)' : guidedRule.calculation === 'percentage' ? 'Commission rate (%)' : guidedRule.calculation === 'fixed' ? 'Commission per order (ETB)' : 'Commission per quintal (ETB)'}
                     </label>
-                    <textarea id="fin-rules" required value={configRules} onChange={(e) => setConfigRules(e.target.value)} className={`${INPUT} font-mono`} rows={3} aria-invalid={!rulesJsonValid} />
+                    <div className="relative">
+                      <input id="fin-rate" required type="number" min="0" max={configKind === 'TAX' || guidedRule.calculation === 'percentage' ? '100' : undefined} step="0.01" value={guidedRule.value} onChange={(e) => setGuidedRule({ ...guidedRule, value: e.target.value })} className={`${INPUT} pr-12 font-mono`} />
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-500">{configKind === 'TAX' || guidedRule.calculation === 'percentage' ? '%' : 'ETB'}</span>
+                    </div>
+                    <p className={SECTION_HINT}>{configKind === 'TAX' ? 'Tax is calculated on the commission amount, not the full order value.' : guidedRule.calculation === 'percentage' ? 'Example: enter 2 to charge 2% of the order value.' : guidedRule.calculation === 'fixed' ? 'This amount is charged once for each eligible order.' : 'Kilogram quantities are converted to quintals (100 kg = 1 quintal) before this fee is calculated.'}</p>
+                  </div>
+                  {configKind === 'COMMISSION' && (
+                    <div className="md:col-span-2 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <label className="flex items-start gap-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100">
+                        <input type="checkbox" className="mt-0.5 accent-emerald-700" checked={guidedRule.buyer_fee_enabled} onChange={(e) => setGuidedRule({ ...guidedRule, buyer_fee_enabled: e.target.checked })} />
+                        <span>Also calculate a separate buyer commission
+                          <span className="mt-1 block text-[11px] font-normal leading-4 text-slate-500 dark:text-slate-400">This creates a buyer-fee amount only. It is charged only when an approved Buyer Commission method exists under Revenue Methods.</span>
+                        </span>
+                      </label>
+                      {guidedRule.buyer_fee_enabled && (
+                        <div className="mt-3 max-w-sm">
+                          <label htmlFor="fin-buyer-rate" className={LABEL}>Buyer commission rate (%)</label>
+                          <div className="relative">
+                            <input id="fin-buyer-rate" required type="number" min="0" max="100" step="0.01" value={guidedRule.buyer_fee_rate} onChange={(e) => setGuidedRule({ ...guidedRule, buyer_fee_rate: e.target.value })} className={`${INPUT} pr-12 font-mono`} />
+                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-500">%</span>
+                          </div>
+                          <p className={SECTION_HINT}>Enter 1 for an additional 1% of order value. The payer is selected in Revenue Methods.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="md:col-span-2 rounded-lg bg-slate-50 p-3 text-[11px] leading-4 text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
+                    <b>How matching works:</b> “Any” applies across all participants or listings for that field. If several rules match, the highest-priority, most-specific approved rule is used. Rules do not stack. Set who pays under <b>Revenue Methods</b>.
+                  </div>
+                  <div className="md:col-span-2">
+                    {!showAdvancedRules ? (
+                      <button type="button" onClick={() => { setConfigRules(guidedRuleJson); setShowAdvancedRules(true); }} className="text-[11px] font-semibold text-slate-600 underline decoration-dotted underline-offset-4 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+                        Advanced: edit full rule data (JSON)
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <label htmlFor="fin-rules" className={`${LABEL} mb-0`}>Advanced rule data (JSON)</label>
+                          <button type="button" onClick={() => setShowAdvancedRules(false)} className="text-[11px] font-semibold text-slate-600 underline decoration-dotted underline-offset-4 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Discard JSON edits and return</button>
+                        </div>
+                        <textarea id="fin-rules" required value={configRules} onChange={(e) => setConfigRules(e.target.value)} className={`${INPUT} min-h-48 font-mono leading-5`} rows={7} aria-invalid={!rulesJsonValid} />
+                        {!rulesJsonValid && <p role="alert" className="text-[11px] text-rose-600 dark:text-rose-400">Check the JSON structure, calculation type, and rates. Rates must be between 0 and 1 (100%).</p>}
+                        <p className={SECTION_HINT}>Advanced mode submits this JSON instead of the guided fields. Include a non-empty <code>rules</code> array. Marketplace commission payer is set in Revenue Methods; for tax rules, <code>fee_payer</code> independently selects seller, buyer, requesting party, or contractual party. Per-unit commission uses quintals.</p>
+                      </div>
+                    )}
                   </div>
                   <div className="md:col-span-2">
                     <label htmlFor="fin-reason" className={LABEL}>Reason for the change</label>
-                    <textarea id="fin-reason" required value={configReason} onChange={(e) => setConfigReason(e.target.value)} placeholder="Why is this rule being introduced?" className={INPUT} rows={2} />
+                    <textarea id="fin-reason" required value={configReason} onChange={(e) => setConfigReason(e.target.value)} placeholder="Explain why the rate or calculation is changing." className={INPUT} rows={3} />
                   </div>
                   {configKind === 'TAX' && (
                     <>
@@ -716,27 +955,39 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                     </>
                   )}
                 </div>
-                <div className="flex justify-end">
+                <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">A draft must be approved before it can affect order revenue.</span>
                   <button type="submit" disabled={savingDraft || !rulesJsonValid} className={BTN_PRIMARY}>
-                    <Save className="w-4 h-4" /> {savingDraft ? 'Saving…' : 'Save draft'}
+                    <Save className="w-4 h-4" /> {savingDraft ? 'Saving…' : 'Save rule draft'}
                   </button>
                 </div>
               </form>
 
               {/* Delivery pricing rule */}
-              <form onSubmit={createDeliveryPricing} className={`${CARD} p-6 space-y-4 max-w-5xl`}>
+              <form onSubmit={createDeliveryPricing} className={`${CARD} p-5 sm:p-7 space-y-6 max-w-6xl`}>
                 <div>
-                  <h3 className={SECTION_TITLE}>Option C delivery pricing rule</h3>
-                  <p className={SECTION_HINT}>More-specific agreement, wereda, zone, region, category, and vehicle rules take precedence. Existing accepted agreements are not changed.</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-400">Freight services</p>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">Delivery pricing rule</h3>
+                  <p className={SECTION_HINT}>Approved when saved; applies to future delivery quote acceptances inside its scope and effective dates. Accepted deliveries keep their saved amounts.</p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className={`rounded-xl border p-4 ${pricingForm.pricing_model === 'A' ? 'border-emerald-300 bg-emerald-50/70 ring-1 ring-emerald-200 dark:border-emerald-800 dark:bg-emerald-950/20 dark:ring-emerald-900' : 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50'}`}>
+                    <p className="text-xs font-bold text-slate-900 dark:text-slate-100">Model A · fee retained from freight</p>
+                    <p className="text-[11px] leading-4 text-slate-600 dark:text-slate-300 mt-1">Buyer pays the agreed freight amount. The platform fee is taken from it; the driver receives the remainder.</p>
+                  </div>
+                  <div className={`rounded-xl border p-4 ${pricingForm.pricing_model === 'B' ? 'border-emerald-300 bg-emerald-50/70 ring-1 ring-emerald-200 dark:border-emerald-800 dark:bg-emerald-950/20 dark:ring-emerald-900' : 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50'}`}>
+                    <p className="text-xs font-bold text-slate-900 dark:text-slate-100">Model B · separate platform fee</p>
+                    <p className="text-[11px] leading-4 text-slate-600 dark:text-slate-300 mt-1">The fee is added to the buyer’s freight amount. The driver receives the full agreed freight; only the platform fee is company revenue.</p>
+                  </div>
                 </div>
                 {pricingError && <div role="alert" className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{pricingError}</div>}
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-4">
                   <div>
                     <label htmlFor="dp-name" className={LABEL}>Rule name</label>
                     <input id="dp-name" required placeholder="e.g., Oromia corridor · ISUZU" value={pricingForm.name} onChange={(e) => setPricingForm({ ...pricingForm, name: e.target.value })} className={INPUT} />
                   </div>
                   <div>
-                    <label htmlFor="dp-model" className={LABEL}>Pricing model</label>
+                    <label htmlFor="dp-model" className={LABEL}>Choose pricing model</label>
                     <select id="dp-model" value={pricingForm.pricing_model} onChange={(e) => setPricingForm({ ...pricingForm, pricing_model: e.target.value })} className={INPUT}>
                       <option value="A">Model A · platform-retained fee</option>
                       <option value="B">Model B · separate fee</option>
@@ -750,8 +1001,9 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="dp-fee" className={LABEL}>Fee value</label>
+                    <label htmlFor="dp-fee" className={LABEL}>{pricingForm.fee_type === 'FIXED' ? 'Platform fee (ETB)' : 'Platform fee rate (%)'}</label>
                     <input id="dp-fee" required type="number" min="0.01" step="0.01" placeholder={pricingForm.fee_type === 'FIXED' ? 'e.g., 250' : 'e.g., 5'} value={pricingForm.fee_value} onChange={(e) => setPricingForm({ ...pricingForm, fee_value: e.target.value })} className={`${INPUT} font-mono`} />
+                    {pricingForm.fee_type === 'PERCENTAGE' && <p className={SECTION_HINT}>Enter 5 for 5% of the agreed freight amount.</p>}
                   </div>
                   <div>
                     <label htmlFor="dp-min" className={LABEL}>Minimum fee (ETB)</label>
@@ -762,8 +1014,9 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                     <input id="dp-max" required type="number" min="0.01" step="0.01" placeholder="e.g., 5000" value={pricingForm.maximum_fee} onChange={(e) => setPricingForm({ ...pricingForm, maximum_fee: e.target.value })} className={`${INPUT} font-mono`} />
                   </div>
 
-                  <div className="md:col-span-3 pt-1">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Scope (leave blank or * for all)</div>
+                  <fieldset className="md:col-span-2 xl:col-span-3 rounded-xl border border-slate-200 p-4 sm:p-5 dark:border-slate-800">
+                    <legend className="px-1 text-xs font-bold text-slate-800 dark:text-slate-100">Where this rule applies</legend>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4">Blank means all. Location filters use the order pickup location. If rules overlap, the most specific matching rule is used.</p>
                     <div className="grid md:grid-cols-3 gap-4">
                       <div>
                         <label htmlFor="dp-region" className={LABEL}>Region</label>
@@ -774,27 +1027,43 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                         {regionOptions.length === 0 && <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Region list unavailable — leave blank for all regions.</span>}
                       </div>
                       <div>
-                        <label htmlFor="dp-zone" className={LABEL}>Zone (UUID, optional)</label>
-                        <input id="dp-zone" placeholder="All zones" value={pricingForm.zone} onChange={(e) => setPricingForm({ ...pricingForm, zone: e.target.value })} className={INPUT} />
+                        <label htmlFor="dp-zone" className={LABEL}>Zone ID (optional)</label>
+                        <input id="dp-zone" placeholder="Leave blank for all zones" value={pricingForm.zone} onChange={(e) => setPricingForm({ ...pricingForm, zone: e.target.value })} className={INPUT} aria-describedby="dp-zone-help" />
+                        <span id="dp-zone-help" className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Use the location ID from the platform registry.</span>
                       </div>
                       <div>
-                        <label htmlFor="dp-wereda" className={LABEL}>Wereda (UUID, optional)</label>
-                        <input id="dp-wereda" placeholder="All weredas" value={pricingForm.wereda} onChange={(e) => setPricingForm({ ...pricingForm, wereda: e.target.value })} className={INPUT} />
+                        <label htmlFor="dp-wereda" className={LABEL}>Wereda ID (optional)</label>
+                        <input id="dp-wereda" placeholder="Leave blank for all weredas" value={pricingForm.wereda} onChange={(e) => setPricingForm({ ...pricingForm, wereda: e.target.value })} className={INPUT} aria-describedby="dp-wereda-help" />
+                        <span id="dp-wereda-help" className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Must belong to the selected region/zone.</span>
                       </div>
                       <div>
                         <label htmlFor="dp-category" className={LABEL}>Product category</label>
-                        <input id="dp-category" placeholder="* (all categories)" value={pricingForm.category} onChange={(e) => setPricingForm({ ...pricingForm, category: e.target.value })} className={INPUT} />
+                        <select id="dp-category" value={pricingForm.category} onChange={(e) => setPricingForm({ ...pricingForm, category: e.target.value })} className={INPUT}>
+                          <option value="*">All categories (*)</option>
+                          {platformConfig.categories.map((category) => (
+                            <option key={category} value={category}>{category}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
-                        <label htmlFor="dp-vehicle" className={LABEL}>Vehicle category</label>
-                        <input id="dp-vehicle" placeholder="* (all vehicles)" value={pricingForm.vehicle_category} onChange={(e) => setPricingForm({ ...pricingForm, vehicle_category: e.target.value })} className={INPUT} />
+                        <label htmlFor="dp-vehicle" className={LABEL}>Driver vehicle type (optional)</label>
+                        <input id="dp-vehicle" placeholder="Leave blank for all vehicle types" value={pricingForm.vehicle_category} onChange={(e) => setPricingForm({ ...pricingForm, vehicle_category: e.target.value })} className={INPUT} />
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Must match the vehicle type in the driver’s registered profile.</span>
                       </div>
                       <div>
-                        <label htmlFor="dp-agreement" className={LABEL}>Approved agreement reference</label>
-                        <input id="dp-agreement" placeholder="Optional" value={pricingForm.business_agreement_reference} onChange={(e) => setPricingForm({ ...pricingForm, business_agreement_reference: e.target.value })} className={INPUT} />
+                        <label htmlFor="dp-agreement" className={LABEL}>Specific buyer–seller order agreement (optional)</label>
+                        <select id="dp-agreement" value={pricingForm.business_agreement_reference} onChange={(e) => setPricingForm({ ...pricingForm, business_agreement_reference: e.target.value })} className={INPUT}>
+                          <option value="">All agreements matching the other scopes</option>
+                          {businessAgreements.map((agreement) => (
+                            <option key={agreement.id} value={agreement.id}>
+                              {agreement.order_reference} · {agreement.buyer_name} ↔ {agreement.seller_name} · {agreement.product_title}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">Choose this only to target one existing buyer–seller order contract. It is not a delivery agreement or payment ID. Leave blank for a rule covering all matching orders.</span>
                       </div>
                     </div>
-                  </div>
+                  </fieldset>
 
                   <div>
                     <label htmlFor="dp-from" className={LABEL}>Effective from</label>
@@ -805,26 +1074,38 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                     <input id="dp-to" type="datetime-local" value={pricingForm.effective_to} onChange={(e) => setPricingForm({ ...pricingForm, effective_to: e.target.value })} className={INPUT} />
                   </div>
                 </div>
-                <div className="flex justify-end">
+                <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">Saving activates this rule for future matching quote acceptances.</span>
                   <button type="submit" disabled={savingPricing} className={BTN_PRIMARY}>
-                    <Save className="w-4 h-4" /> {savingPricing ? 'Saving…' : 'Save delivery rule'}
+                    <Save className="w-4 h-4" /> {savingPricing ? 'Saving…' : 'Save & activate delivery rule'}
                   </button>
                 </div>
               </form>
 
               {/* Delivery pricing rules list */}
-              <section className={`${CARD} p-6`}>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className={SECTION_TITLE}>Delivery pricing rules &amp; precedence</h3>
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{deliveryPricingRows.length} rules</span>
+              <section className={`${CARD} p-5 sm:p-7`}>
+                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className={SECTION_TITLE}>Saved delivery pricing rules</h3>
+                    <p className={SECTION_HINT}>Disabled rules remain in history and do not price new delivery agreements.</p>
+                  </div>
+                  <div className="inline-flex self-start rounded-lg bg-slate-100 p-1 dark:bg-slate-800" aria-label="Filter delivery pricing rules">
+                    {(['ACTIVE', 'INACTIVE', 'ALL'] as const).map((filter) => (
+                      <button key={filter} type="button" onClick={() => setDeliveryPricingFilter(filter)} aria-pressed={deliveryPricingFilter === filter} className={`rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors ${deliveryPricingFilter === filter ? 'bg-white text-emerald-800 shadow-sm dark:bg-slate-700 dark:text-emerald-300' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}>
+                        {filter === 'ACTIVE' ? `Active (${deliveryPricingRows.filter((row) => row.active).length})` : filter === 'INACTIVE' ? `Disabled (${deliveryPricingRows.filter((row) => !row.active).length})` : `All (${deliveryPricingRows.length})`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {financialLoading ? (
                   <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-16 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />)}</div>
                 ) : deliveryPricingRows.length === 0 ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400 py-6 text-center">No delivery pricing rules yet — create the first one above.</p>
+                ) : visibleDeliveryPricingRows.length === 0 ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 py-6 text-center">No {deliveryPricingFilter.toLowerCase()} delivery pricing rules. Choose another filter to see rule history.</p>
                 ) : (
                   <div className="space-y-2">
-                    {deliveryPricingRows.map((rule) => (
+                    {visibleDeliveryPricingRows.map((rule) => (
                       <div key={rule.id} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{rule.name}</span>
@@ -839,7 +1120,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                         {rule.active && (
                           <button
                             type="button"
-                            onClick={() => deactivatePricingRule(rule.id)}
+                            onClick={() => { setDeactivateError(''); setDeactivateTarget(rule); }}
                             disabled={deactivatingId === rule.id}
                             className={`${BTN_DANGER} mt-3`}
                           >
@@ -877,7 +1158,7 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                           </p>
                         </div>
                         {row.status === 'DRAFT' && (
-                          <button onClick={() => approveFinancialConfiguration(row.id)} disabled={approvingId === row.id} className={BTN_PRIMARY}>
+                          <button onClick={() => setApproveTarget(row)} disabled={approvingId === row.id} className={BTN_PRIMARY}>
                             {approvingId === row.id ? 'Approving…' : 'Approve'} <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         )}
@@ -918,9 +1199,9 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
                       : 'border-amber-200 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400'
                   }`}>
                     {health.status === 'operational' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-                    All systems {health.status}
+                    Platform status: {String(health.status).replace(/_/g, ' ')}
                     <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-auto">
-                      {health.error_rate_last_hour} failed actions in the last hour
+                      {health.error_rate_last_hour} error{Number(health.error_rate_last_hour) === 1 ? '' : 's'} recorded in the last hour
                       {checkedAt && <> · checked {checkedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</>}
                     </span>
                   </div>
@@ -948,6 +1229,47 @@ export const SuperAdminDashboard: React.FC<{ initialTab?: TabId }> = ({ initialT
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!approveTarget}
+        title="Approve this financial configuration?"
+        description={
+          approveTarget
+            ? <>Approving <b>{approveTarget.name}</b> (v{approveTarget.version}) puts it in force immediately and cannot be undone from this screen.</>
+            : undefined
+        }
+        confirmLabel="Approve & activate"
+        busy={!!approveTarget && approvingId === approveTarget.id}
+        onConfirm={() => { if (approveTarget) void approveFinancialConfiguration(approveTarget.id); }}
+        onCancel={() => setApproveTarget(null)}
+      />
+
+      <ReasonDialog
+        open={!!deactivateTarget}
+        title="Deactivate this delivery rule?"
+        description={
+          deactivateTarget
+            ? <>Existing accepted agreements keep their terms; this rule will no longer apply to <b>new</b> agreements. The reason is written to the audit trail.</>
+            : undefined
+        }
+        label="Reason for deactivation"
+        confirmLabel="Deactivate rule"
+        danger
+        busy={!!deactivateTarget && deactivatingId === deactivateTarget.id}
+        error={deactivateError}
+        onConfirm={(reason) => { if (deactivateTarget) void deactivatePricingRule(deactivateTarget.id, reason); }}
+        onCancel={() => { setDeactivateTarget(null); setDeactivateReason(''); setDeactivateError(''); }}
+      />
+
+      <ConfirmDialog
+        open={confirmPublish}
+        title="Publish these changes to the live website?"
+        description={<>This immediately replaces the public landing copy for <b>{platformTitle}</b>. There is no draft preview.</>}
+        confirmLabel="Publish now"
+        busy={savingContent}
+        onConfirm={() => void saveContent()}
+        onCancel={() => setConfirmPublish(false)}
+      />
 
       {/* ============ Category create/edit modal ============ */}
       {categoryModal && (

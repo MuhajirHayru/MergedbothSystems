@@ -43,7 +43,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id", "full_name", "email", "password", "phone", "location",
-            "profile_photo", "latitude", "longitude", "role", "status", "role_display",
+            "profile_photo", "bio", "latitude", "longitude", "role", "status", "role_display",
             "status_display", "rejection_reason", "privacy_policy_accepted",
             "business_name", "business_address",
             "permissions", "financially_verified", "is_online", "created_at",
@@ -150,7 +150,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["full_name", "phone", "email", "business_name", "business_address"]
+        fields = ["full_name", "phone", "email", "business_name", "business_address", "bio"]
         extra_kwargs = {
             field: {"required": False}
             for field in ("full_name", "phone", "email")
@@ -252,7 +252,7 @@ class PublicUserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id", "full_name", "role",
-            "role_display", "status", "profile_photo", "financially_verified",
+            "role_display", "status", "profile_photo", "bio", "financially_verified",
             "is_online", "created_at",
         ]
 
@@ -273,6 +273,7 @@ class DirectoryUserSerializer(serializers.ModelSerializer):
 
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    registration_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -280,8 +281,64 @@ class DirectoryUserSerializer(serializers.ModelSerializer):
             "id", "full_name", "email", "phone", "location", "role",
             "role_display", "status", "status_display", "rejection_reason",
             "privacy_policy_accepted", "failed_login_attempts", "locked_until",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "registration_summary",
         ]
+
+    def get_registration_summary(self, obj):
+        """The user's registration with every provided document (post-approval
+        visibility included) so administrators can review paperwork in place."""
+        registration = getattr(obj, "registration", None)
+        if registration is None:
+            return None
+        documents = []
+        request = self.context.get("request")
+        for doc in registration.documents.all():
+            file_url = ""
+            try:
+                if doc.file:
+                    file_url = doc.file.url
+                    if request:
+                        file_url = request.build_absolute_uri(file_url)
+            except ValueError:
+                file_url = ""
+            documents.append({
+                "id": str(doc.pk),
+                "document_type": doc.document_type,
+                "status": doc.verification_status,
+                "original_filename": doc.original_filename,
+                "file_url": file_url,
+            })
+        return {
+            "id": str(registration.pk),
+            "status": registration.status,
+            "location_name": registration.location.name if registration.location else "",
+            "documents": documents,
+        }
+
+
+class AdminDashboardFeaturesField(serializers.Field):
+    """Expose effective feature grants and accept a validated create-time allow-list."""
+
+    def get_attribute(self, instance):
+        return instance
+
+    def to_representation(self, obj):
+        from registrations.services import DASHBOARD_FEATURES
+
+        scope = AdministratorScope.objects.filter(user=obj).first()
+        if scope is None:
+            return []
+        return list(DASHBOARD_FEATURES) if scope.feature_flags is None else scope.feature_flags
+
+    def to_internal_value(self, data):
+        from registrations.services import DASHBOARD_FEATURES
+
+        if not isinstance(data, list) or any(not isinstance(item, str) for item in data):
+            raise serializers.ValidationError("Provide a list of enabled dashboard feature keys.")
+        unknown = sorted(set(data) - set(DASHBOARD_FEATURES))
+        if unknown:
+            raise serializers.ValidationError(f"Unknown feature key(s): {', '.join(unknown)}.")
+        return sorted(set(data))
 
 
 class AdminAccountSerializer(serializers.ModelSerializer):
@@ -292,6 +349,7 @@ class AdminAccountSerializer(serializers.ModelSerializer):
     scope_label = serializers.SerializerMethodField()
     location_name = serializers.SerializerMethodField()
     last_login = serializers.DateTimeField(read_only=True)
+    dashboard_features = AdminDashboardFeaturesField(required=False)
     scope_level = serializers.ChoiceField(
         choices=AdministratorScope.Level.choices,
         write_only=True,
@@ -317,6 +375,23 @@ class AdminAccountSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    scope_location_flag = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=16,
+        help_text="Regional insignia stored on the assigned location (Super Admin or Top User Admin only).",
+    )
+    location_flag = serializers.SerializerMethodField()
+    location_flag_image = serializers.SerializerMethodField()
+    location_id = serializers.SerializerMethodField()
+    location_level = serializers.SerializerMethodField()
+    base_monthly_salary = serializers.DecimalField(
+        max_digits=14, decimal_places=2, required=False, min_value=0, write_only=True
+    )
+    monthly_commission = serializers.DecimalField(
+        max_digits=14, decimal_places=2, required=False, min_value=0, write_only=True
+    )
 
     class Meta:
         model = User
@@ -324,24 +399,40 @@ class AdminAccountSerializer(serializers.ModelSerializer):
             "id", "full_name", "email", "password", "phone", "location",
             "role", "role_display", "status", "is_staff", "created_at",
             "last_login",
-            "scope_level", "scope_location", "scope_type", "scope_label",
-            "location_name",
+            "dashboard_features",
+            "scope_level", "scope_location", "scope_location_flag", "scope_type", "scope_label",
+            "location_name", "location_id", "location_level", "location_flag", "location_flag_image", "base_monthly_salary", "monthly_commission",
         ]
         read_only_fields = ["id", "role_display", "created_at"]
 
     def validate_role(self, value):
-        if value not in (Role.USER_ADMIN, Role.FINANCIAL_MANAGER):
+        hierarchy_roles = (Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN)
+        staff_roles = (
+            Role.USER_ADMIN,
+            *hierarchy_roles,
+            Role.FINANCIAL_MANAGER,
+            Role.LOGISTICS_MANAGER,
+            Role.CUSTOMER_SUPPORT,
+        )
+        if value not in staff_roles:
             raise serializers.ValidationError(
-                "Admin accounts must use the USER_ADMIN or FINANCIAL_MANAGER role."
+                "Staff accounts must use one of: USER_ADMIN, FINANCIAL_MANAGER, "
+                "LOGISTICS_MANAGER or CUSTOMER_SUPPORT."
             )
         request = self.context.get("request")
-        if (
-            value == Role.FINANCIAL_MANAGER
-            and request
-            and request.user.role != Role.SUPER_ADMIN
-        ):
+        if value in hierarchy_roles and request:
+            from registrations.services import creatable_hierarchy_roles
+
+            if value not in creatable_hierarchy_roles(request.user):
+                raise serializers.ValidationError(
+                    "You cannot create this administrator role. A parent administrator with the admin-management grant may create only administrators below their location."
+                )
+        if value == Role.USER_ADMIN and request and request.user.role not in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+            raise serializers.ValidationError("Only a national administrator can create a User Admin account.")
+        if value not in (Role.USER_ADMIN, *hierarchy_roles) and request and request.user.role != Role.SUPER_ADMIN:
             raise serializers.ValidationError(
-                "Only the Super Admin can create or manage Financial Managers."
+                "Only the Super Admin can create or manage Financial Manager, "
+                "Logistics Manager and Customer Support accounts."
             )
         return value
 
@@ -349,7 +440,11 @@ class AdminAccountSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not attrs.get("password") and self.instance is None:
             raise serializers.ValidationError({"password": "This field is required."})
-        if attrs.get("role", getattr(self.instance, "role", None)) == Role.USER_ADMIN:
+        if self.instance is not None and "dashboard_features" in attrs:
+            raise serializers.ValidationError({"dashboard_features": "Use the dashboard-features endpoint to change grants so the change is audited."})
+        role = attrs.get("role", getattr(self.instance, "role", None))
+        scoped_roles = (Role.USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN)
+        if role in scoped_roles:
             current_scope = None
             if self.instance is not None:
                 current_scope = AdministratorScope.objects.filter(
@@ -367,6 +462,15 @@ class AdminAccountSerializer(serializers.ModelSerializer):
                 "scope_type",
                 admin_scope_type_for_location(location) if location else "TOP_LEVEL",
             )
+            required_scope_type = {
+                Role.REGIONAL_ADMIN: "REGIONAL",
+                Role.ZONAL_ADMIN: "ZONAL",
+                Role.WEREDA_ADMIN: "WOREDA",
+            }.get(role)
+            if required_scope_type and scope_type != required_scope_type:
+                raise serializers.ValidationError({"scope_location": f"A {role.replace('_', ' ').title()} must be assigned to a {required_scope_type.lower()} location."})
+            if required_scope_type and scope_level != AdministratorScope.Level.LOCATION:
+                raise serializers.ValidationError({"scope_level": "Hierarchy administrators require a specific geographic location."})
             if scope_level is None:
                 raise serializers.ValidationError(
                     {"scope_level": "Choose the new administrator's geographic scope."}
@@ -394,6 +498,15 @@ class AdminAccountSerializer(serializers.ModelSerializer):
                     }
                 )
             attrs["scope_type"] = scope_type
+            feature_flags = attrs.get("dashboard_features")
+            if feature_flags is not None and request:
+                from registrations.services import features_available_to_admin
+
+                available = set(features_available_to_admin(request.user))
+                if not set(feature_flags).issubset(available):
+                    raise serializers.ValidationError(
+                        {"dashboard_features": "You cannot grant dashboard features that you do not have."}
+                    )
         return attrs
 
     def get_scope_label(self, obj):
@@ -420,18 +533,107 @@ class AdminAccountSerializer(serializers.ModelSerializer):
         ).first()
         return scope.location.name if scope and scope.location_id else "Nationwide"
 
+    def get_location_flag(self, obj):
+        scope = AdministratorScope.objects.filter(user=obj).select_related(
+            "location"
+        ).first()
+        if not scope or not scope.location_id:
+            return ""
+        from registrations.services import dashboard_flag_for
+
+        return dashboard_flag_for(scope, obj.role)
+
+    def get_location_flag_image(self, obj):
+        scope = AdministratorScope.objects.filter(user=obj).select_related(
+            "location"
+        ).first()
+        if not scope or not scope.location_id:
+            return ""
+        from registrations.services import dashboard_flag_image_for
+
+        url = dashboard_flag_image_for(scope, obj.role)
+        if url and self.context.get("request"):
+            return self.context["request"].build_absolute_uri(url)
+        return url
+
+    def get_location_id(self, obj):
+        scope = AdministratorScope.objects.filter(user=obj).first()
+        return str(scope.location_id) if scope and scope.location_id else ""
+
+    def get_location_level(self, obj):
+        scope = AdministratorScope.objects.select_related("location").filter(user=obj).first()
+        return scope.location.level if scope and scope.location_id else ""
+
+    def _apply_default_flag(self, location):
+        """Auto-assign the insignia at creation when none was chosen.
+
+        Addis Ababa (the federal capital) admins get the federal flag; every
+        other location keeps whatever flag the reference data already carries.
+        """
+        from registrations.services import is_federal_city
+
+        if location is None or location.flag or not is_federal_city(location):
+            return
+        location.flag = "🇪🇹"
+        location.save(update_fields=["flag"])
+        from users.audit import log_action
+
+        log_action(
+            self.context.get("request"),
+            actor=self.context.get("request").user if self.context.get("request") else None,
+            action="location_flag_defaulted",
+            target=str(location.pk),
+            detail=f"{location.name}: federal flag assigned at admin creation",
+        )
+
+    def _apply_scope_location_flag(self, actor, location, flag):
+        """Store a regional insignia on the assigned location (Super Admin only, audited)."""
+        if flag is None:
+            return
+        if actor is None or actor.role != Role.SUPER_ADMIN:
+            raise serializers.ValidationError(
+                {"scope_location_flag": "Only the Super Admin can set a location flag."}
+            )
+        if location is None:
+            raise serializers.ValidationError(
+                {"scope_location_flag": "Choose the administrator's location before setting a flag."}
+            )
+        clean_flag = (flag or "").strip()
+        if len(clean_flag) > 16:
+            raise serializers.ValidationError({"scope_location_flag": "Keep the flag to 16 characters."})
+        previous = location.flag
+        location.flag = clean_flag
+        location.save(update_fields=["flag"])
+        from users.audit import log_action
+
+        log_action(
+            self.context.get("request"),
+            actor=actor,
+            action="location_flag_updated",
+            target=str(location.pk),
+            detail=f"{location.name}: '{previous}' -> '{clean_flag}'",
+        )
+
     def create(self, validated_data):
         password = validated_data.pop("password")
         scope_level = validated_data.pop("scope_level", None)
         scope_location = validated_data.pop("scope_location", None)
+        scope_location_flag = validated_data.pop("scope_location_flag", None)
         validated_data.pop("scope_type", None)
+        feature_flags = validated_data.pop("dashboard_features", None)
+        base_salary = validated_data.pop("base_monthly_salary", None)
+        commission = validated_data.pop("monthly_commission", None)
         validated_data["status"] = AccountStatus.APPROVED
         validated_data.setdefault("privacy_policy_accepted", True)
         with transaction.atomic():
             user = User(**validated_data)
             user.set_password(password)
             user.save()
-            if user.role == Role.USER_ADMIN:
+            if user.role in (Role.USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN):
+                if scope_location_flag is not None:
+                    self._apply_scope_location_flag(self.context.get("request").user, scope_location, scope_location_flag)
+                else:
+                    self._apply_default_flag(scope_location)
                 AdministratorScope.objects.update_or_create(
                     user=user,
                     defaults={
@@ -439,11 +641,27 @@ class AdminAccountSerializer(serializers.ModelSerializer):
                         "location": scope_location,
                     },
                 )
+                scope = AdministratorScope.objects.get(user=user)
+                from registrations.services import features_available_to_admin
+
+                available = set(features_available_to_admin(self.context["request"].user))
+                scope.feature_flags = sorted(available if feature_flags is None else set(feature_flags))
+                scope.save(update_fields=["feature_flags"])
+            if base_salary is not None or commission is not None:
+                from payments.financial_models import StaffCompensation
+
+                StaffCompensation.objects.create(
+                    user=user,
+                    base_monthly_salary=base_salary or 0,
+                    monthly_commission=commission or 0,
+                    set_by=self.context.get("request").user,
+                )
         return user
 
     def update(self, instance, validated_data):
         scope_level = validated_data.pop("scope_level", None)
         scope_location = validated_data.pop("scope_location", None)
+        scope_location_flag = validated_data.pop("scope_location_flag", None)
         validated_data.pop("scope_type", None)
         password = validated_data.pop("password", None)
         for field, value in validated_data.items():
@@ -452,6 +670,8 @@ class AdminAccountSerializer(serializers.ModelSerializer):
             instance.set_password(password)
             instance.password_changed_at = timezone.now()
         instance.save()
+        if scope_location_flag is not None and scope_location is not None:
+            self._apply_scope_location_flag(self.context.get("request").user, scope_location, scope_location_flag)
         if scope_level is not None and instance.role == Role.USER_ADMIN:
             AdministratorScope.objects.update_or_create(
                 user=instance,
@@ -804,6 +1024,7 @@ class PlatformSettingsUpdateSerializer(serializers.Serializer):
     require_approval = serializers.BooleanField(required=False)
     announcement = serializers.CharField(required=False, allow_blank=True)
     maintenance_mode = serializers.BooleanField(required=False)
+    orders_disabled = serializers.BooleanField(required=False)
     max_failed_login_attempts = serializers.IntegerField(
         required=False, min_value=1, max_value=20
     )

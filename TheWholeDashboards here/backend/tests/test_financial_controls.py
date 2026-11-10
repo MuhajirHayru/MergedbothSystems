@@ -19,10 +19,18 @@ from users.models import AuditLog, Role
 pytestmark = pytest.mark.django_db
 
 
+COMMISSION_RULES = {
+    "rules": [{
+        "seller_role": "*", "buyer_role": "*", "product_type": "*",
+        "calculation": "percentage", "rate": "0.02", "fee_payer": "buyer",
+    }],
+}
+
+
 def test_configuration_draft_is_versioned_and_super_admin_approves(api, financial_manager, super_admin):
     api.force_authenticate(financial_manager)
     response = api.post("/api/v1/payments/financial/configurations/", {
-        "kind": "COMMISSION", "name": "Commission draft", "rules": {"rate": "PROVISIONAL"},
+        "kind": "COMMISSION", "name": "Commission draft", "rules": COMMISSION_RULES,
         "reason": "Needs approval", "effective_from": timezone.now().isoformat(),
     }, format="json")
     assert response.status_code == 201
@@ -38,16 +46,92 @@ def test_configuration_draft_is_versioned_and_super_admin_approves(api, financia
     assert AuditLog.objects.filter(action="FINANCIAL_CONFIGURATION_APPROVED", target=str(config.pk)).exists()
 
 
+def test_financial_summary_uses_ledger_backed_report(api, financial_manager):
+    api.force_authenticate(financial_manager)
+    response = api.get("/api/v1/payments/financial/summary/")
+    assert response.status_code == 200
+    assert response.data["revenue"] != "UNTRACKED"
+    assert response.data["profit_status"] == "INCOMPLETE"
+    assert "cost_of_goods_sold" in response.data["unavailable_figures"]
+
+
 def test_tax_configuration_requires_authoritative_source_and_url(api, financial_manager, super_admin):
     api.force_authenticate(financial_manager)
     response = api.post("/api/v1/payments/financial/configurations/", {
-        "kind": "TAX", "name": "Tax proposal", "rules": {"rate": "PROVISIONAL"},
+        "kind": "TAX", "name": "Tax proposal", "rules": COMMISSION_RULES,
         "reason": "Awaiting verified law", "effective_from": timezone.now().isoformat(),
     }, format="json")
     assert response.status_code == 201
     api.force_authenticate(super_admin)
     approved = api.post(f"/api/v1/payments/financial/configurations/{response.data['id']}/approve/", {}, format="json")
     assert approved.status_code == 400
+
+
+def test_approval_rejects_a_draft_without_a_usable_rules_list(api, super_admin):
+    api.force_authenticate(user=super_admin)
+    created = api.post("/api/v1/payments/financial/configurations/", {
+        "kind": "COMMISSION", "name": "Provisional placeholder",
+        "rules": {"status": "PROVISIONAL"},
+        "reason": "Placeholder only", "effective_from": timezone.now().isoformat(),
+    }, format="json")
+    assert created.status_code == 201
+    approved = api.post(
+        f"/api/v1/payments/financial/configurations/{created.data['id']}/approve/", {}, format="json"
+    )
+    assert approved.status_code == 400
+    assert "rules" in str(approved.data).lower()
+    assert FinancialConfiguration.objects.get(pk=created.data["id"]).status == FinancialConfiguration.Status.DRAFT
+
+
+@pytest.mark.parametrize(
+    "kind,rule,source,source_url",
+    [
+        ("COMMISSION", {"calculation": "percentage", "rate": "1.01"}, "", ""),
+        ("COMMISSION", {"calculation": "percentage", "rate": "0.02", "buyer_fee_calculation": "percentage", "buyer_fee_rate": "1.2"}, "", ""),
+        ("TAX", {"rate": "1.01"}, "Tax authority", "https://tax.example/rule"),
+        ("COMMISSION", {"calculation": "unknown", "rate": "0.02"}, "", ""),
+    ],
+)
+def test_approval_rejects_invalid_financial_rule_math(api, financial_manager, super_admin, kind, rule, source, source_url):
+    api.force_authenticate(financial_manager)
+    created = api.post("/api/v1/payments/financial/configurations/", {
+        "kind": kind, "name": "Invalid rule test", "rules": {"rules": [rule]},
+        "reason": "Regression test", "effective_from": timezone.now().isoformat(),
+        "source": source, "source_url": source_url,
+    }, format="json")
+    assert created.status_code == 201, created.data
+
+    api.force_authenticate(super_admin)
+    approved = api.post(
+        f"/api/v1/payments/financial/configurations/{created.data['id']}/approve/", {}, format="json"
+    )
+
+    assert approved.status_code == 400, approved.data
+    assert FinancialConfiguration.objects.get(pk=created.data["id"]).status == FinancialConfiguration.Status.DRAFT
+
+
+def test_delivery_pricing_has_one_wired_path_not_a_financial_configuration(api, super_admin, financial_manager):
+    api.force_authenticate(user=super_admin)
+    rejected_kind = api.post("/api/v1/payments/financial/configurations/", {
+        "kind": "DELIVERY", "name": "Dead delivery rule", "rules": COMMISSION_RULES,
+        "reason": "Should not exist", "effective_from": timezone.now().isoformat(),
+    }, format="json")
+    assert rejected_kind.status_code == 400
+
+    payload = {
+        "name": "Addis standard delivery", "pricing_model": "A", "fee_type": "FIXED",
+        "fee_value": "50.00", "minimum_fee": "10.00", "maximum_fee": "500.00",
+        "category": "*", "effective_from": timezone.now().isoformat(),
+    }
+    api.force_authenticate(user=financial_manager)
+    assert api.post("/api/v1/payments/financial/delivery-pricing/", payload, format="json").status_code == 403
+
+    api.force_authenticate(user=super_admin)
+    created = api.post("/api/v1/payments/financial/delivery-pricing/", payload, format="json")
+    assert created.status_code == 201
+    config = DeliveryPricingConfiguration.objects.get(pk=created.data["id"])
+    assert config.approved_by == super_admin
+    assert config.approved_at is not None
 
 
 def test_financial_controls_deny_regular_marketplace_user(api, wholesaler):
@@ -182,6 +266,15 @@ def test_delivery_pricing_respects_effective_date_and_scope(financial_manager, p
     config.save()
     details = agreement.order.shipment_details
     assert resolve_delivery_pricing(agreement=agreement, actor=super_admin).pk == config.pk
+    config.category = "Vegetables"
+    config.save(update_fields=["category"])
+    assert resolve_delivery_pricing(agreement=agreement, actor=super_admin).pk == config.pk
+    config.category = "Fruits"
+    config.save(update_fields=["category"])
+    with pytest.raises(ValueError, match="No approved effective"):
+        resolve_delivery_pricing(agreement=agreement, actor=super_admin)
+    config.category = "*"
+    config.save(update_fields=["category"])
     DeliveryPricingConfiguration.objects.create(name="Same scope conflict", pricing_model=config.pricing_model, fee_type=config.fee_type, fee_value="10.00", maximum_fee="50.00", region=config.region, effective_from=config.effective_from, created_by=super_admin, approved_by=super_admin, approved_at=timezone.now())
     with pytest.raises(ValueError, match="equal precedence"):
         resolve_delivery_pricing(agreement=agreement, actor=super_admin)
@@ -255,7 +348,7 @@ def test_delivery_partial_payment_does_not_post_revenue(financial_manager, price
 def test_delivery_tax_uses_approved_source_backed_configuration(financial_manager, super_admin, priced_agreement):
     from payments.financial_services import create_delivery_payment
     agreement, config = priced_agreement
-    tax = FinancialConfiguration.objects.create(kind=FinancialConfiguration.Kind.TAX, name="Approved delivery tax", version=1, status=FinancialConfiguration.Status.APPROVED, rules={"rules": [{"seller_role": "DRIVER", "product_type": agreement.order.product.product_type, "region_id": str(agreement.order.shipment_details.pickup_region_id), "rate": "0.10", "tax_base": "25.00"}]}, source="Tax authority", source_url="https://tax.example/rule", reason="Approved tax rule", effective_from=agreement.buyer_accepted_at - timezone.timedelta(days=1), created_by=super_admin, approved_by=super_admin, approved_at=timezone.now())
+    tax = FinancialConfiguration.objects.create(kind=FinancialConfiguration.Kind.TAX, name="Approved delivery tax", version=1, status=FinancialConfiguration.Status.APPROVED, rules={"rules": [{"seller_role": "DRIVER", "product_type": agreement.order.product.product_type, "region_id": str(agreement.order.shipment_details.pickup_region_id), "rate": "0.10", "tax_base": "25.00"}]}, source="Tax authority", source_url="https://tax.example/rule", reason="Approved tax rule", effective_from=agreement.buyer_accepted_at - timezone.timedelta(days=1), created_by=super_admin, approved_by=super_admin, approved_at=agreement.buyer_accepted_at - timezone.timedelta(seconds=1))
     from payments.financial_services import snapshot_delivery_pricing
     snapshot_delivery_pricing(agreement)
     from payments.models import MarketplaceDeliveryFeeAgreement

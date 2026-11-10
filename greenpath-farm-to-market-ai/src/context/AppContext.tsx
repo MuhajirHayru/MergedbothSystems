@@ -143,7 +143,9 @@ interface AppContextType {
 
   // Notifications & Modals
   notification: string | null;
-  setNotification: (msg: string | null) => void;
+  notificationType: 'success' | 'error' | 'info';
+  setNotification: (msg: string | null, type?: 'success' | 'error' | 'info') => void;
+  dismissNotification: () => void;
   aiModalOpen: boolean;
   setAiModalOpen: (open: boolean) => void;
 
@@ -200,11 +202,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Global Notification & AI Assistant
   const [notification, setNotification] = useState<string | null>(null);
+  const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('success');
+  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aiModalOpen, setAiModalOpen] = useState<boolean>(false);
 
-  // Lockout State
-  const [failedLoginAttempts, setFailedLoginAttempts] = useState<number>(0);
-  const [isLockedOut, setIsLockedOut] = useState<boolean>(false);
+  // Lockout State — persisted so a page reload cannot bypass the cooldown.
+  const LOGIN_ATTEMPTS_KEY = 'gp_login_attempts_v1';
+  const LOGIN_LOCK_UNTIL_KEY = 'gp_login_lock_until_v1';
+  const readStoredNumber = (key: string): number => {
+    try {
+      const value = Number(localStorage.getItem(key));
+      return Number.isFinite(value) ? value : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const [failedLoginAttempts, setFailedLoginAttempts] = useState<number>(() => readStoredNumber(LOGIN_ATTEMPTS_KEY));
+  const [lockoutUntil, setLockoutUntil] = useState<number>(() => readStoredNumber(LOGIN_LOCK_UNTIL_KEY));
+  const [isLockedOut, setIsLockedOut] = useState<boolean>(() => readStoredNumber(LOGIN_LOCK_UNTIL_KEY) > Date.now());
+  const lockoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
@@ -223,41 +239,101 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return text || 'Something went wrong.';
   };
 
-  const showNotification = (msg: unknown) => {
+  const showNotification = (msg: unknown, type?: 'success' | 'error' | 'info') => {
     const text = notificationText(msg);
-    setNotification(text);
-    if (text) {
-      setTimeout(() => {
-        setNotification(null);
-      }, 4500);
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = null;
     }
+    if (!text) {
+      setNotification(null);
+      return;
+    }
+    const looksLikeError = /(fail|error|reject|denied|invalid|could not|unable|expired|incorrect|not allowed|unavailable|rolled back|missing)/i.test(text);
+    setNotification(text);
+    setNotificationType(type ?? (looksLikeError ? 'error' : 'success'));
+    // A single timer owned by the newest message: an older timeout must never
+    // clear a notification that replaced it.
+    notificationTimerRef.current = setTimeout(() => {
+      setNotification(null);
+      notificationTimerRef.current = null;
+    }, 6000);
+  };
+
+  const dismissNotification = () => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current);
+      notificationTimerRef.current = null;
+    }
+    setNotification(null);
+  };
+
+  const persistLoginState = (attempts: number, until: number) => {
+    try {
+      localStorage.setItem(LOGIN_ATTEMPTS_KEY, String(attempts));
+      if (until > 0) localStorage.setItem(LOGIN_LOCK_UNTIL_KEY, String(until));
+      else localStorage.removeItem(LOGIN_LOCK_UNTIL_KEY);
+    } catch {
+      /* private mode */
+    }
+  };
+
+  const clearLockout = () => {
+    if (lockoutTimerRef.current) {
+      clearTimeout(lockoutTimerRef.current);
+      lockoutTimerRef.current = null;
+    }
+    setFailedLoginAttempts(0);
+    setIsLockedOut(false);
+    setLockoutUntil(0);
+    persistLoginState(0, 0);
   };
 
   const recordFailedLogin = () => {
-    const nextAttempts = failedLoginAttempts + 1;
-    setFailedLoginAttempts(nextAttempts);
-    if (nextAttempts >= platformConfig.security.maxFailedAttempts) {
-      setIsLockedOut(true);
-      setTimeout(() => {
-        setIsLockedOut(false);
-        setFailedLoginAttempts(0);
-      }, platformConfig.security.lockoutDurationMinutes * 60 * 1000);
-    }
+    setFailedLoginAttempts((previous) => {
+      const nextAttempts = previous + 1;
+      if (nextAttempts >= platformConfig.security.maxFailedAttempts) {
+        const until = Date.now() + platformConfig.security.lockoutDurationMinutes * 60 * 1000;
+        persistLoginState(nextAttempts, until);
+        setLockoutUntil(until);
+        setIsLockedOut(true);
+        if (lockoutTimerRef.current) clearTimeout(lockoutTimerRef.current);
+        lockoutTimerRef.current = setTimeout(clearLockout, Math.max(0, until - Date.now()));
+      } else {
+        persistLoginState(nextAttempts, 0);
+      }
+      return nextAttempts;
+    });
   };
 
   const resetLoginAttempts = () => {
-    setFailedLoginAttempts(0);
-    setIsLockedOut(false);
+    clearLockout();
   };
+
+  // Restore a lockout that was active before the page was reloaded.
+  useEffect(() => {
+    const storedUntil = readStoredNumber(LOGIN_LOCK_UNTIL_KEY);
+    if (storedUntil > Date.now()) {
+      setIsLockedOut(true);
+      setLockoutUntil(storedUntil);
+      lockoutTimerRef.current = setTimeout(clearLockout, storedUntil - Date.now());
+    } else if (storedUntil > 0) {
+      clearLockout();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => () => {
+    if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+    if (lockoutTimerRef.current) clearTimeout(lockoutTimerRef.current);
+  }, []);
 
   const markAuthenticated = (value: boolean) => setIsAuthenticated(value);
 
   const logout = async () => {
-    try {
-      await api.auth.logout();
-    } catch (e) {
-      // ignore
-    }
+    // Clear the local session first so a slow/unreachable logout endpoint can
+    // never leave the UI looking signed in. The request carries a captured
+    // token because localStorage is cleared immediately afterwards.
     localStorage.removeItem('greenpath_auth_token');
     localStorage.removeItem('greenpath_refresh_token');
     localStorage.removeItem('greenpath_registration_token');
@@ -280,6 +356,76 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setWaybills([]);
     setActiveView('landing');
   };
+
+  // A failed silent refresh means the server no longer accepts this session.
+  useEffect(() => {
+    const onExpired = () => {
+      localStorage.removeItem('greenpath_auth_token');
+      localStorage.removeItem('greenpath_refresh_token');
+      localStorage.removeItem('greenpath_registration_token');
+      sessionUserIdRef.current = null;
+      loadedRoleRef.current = null;
+      setIsAuthenticated(false);
+      setAuthLoading(false);
+      setCurrentRoleState('public' as UserRole);
+      setUserProfiles({});
+      setAllUsersList([]);
+      setProducts([]);
+      setOrders([]);
+      setConversations([]);
+      setWallet(EMPTY_WALLET);
+      setApplications([]);
+      setAuditLogs([]);
+      setRegionalMetrics([]);
+      setBankAccounts([]);
+      setWaybills([]);
+      setActiveView('login');
+      showNotification('Your session expired. Please sign in again.', 'error');
+    };
+    window.addEventListener('greenpath:session-expired', onExpired);
+    return () => window.removeEventListener('greenpath:session-expired', onExpired);
+  }, []);
+
+  // Inactivity timeout — the security policy is displayed in the Super Admin
+  // dashboard, so it must actually be enforced in the running client.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const minutes = Math.max(1, Number(platformConfig.security.sessionTimeoutMinutes) || 60);
+    const limitMs = minutes * 60 * 1000;
+    let lastActivity = Date.now();
+    const touch = () => { lastActivity = Date.now(); };
+    const events: Array<keyof WindowEventMap> = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((eventName) => window.addEventListener(eventName, touch, { passive: true }));
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastActivity < limitMs) return;
+      window.clearInterval(timer);
+      localStorage.removeItem('greenpath_auth_token');
+      localStorage.removeItem('greenpath_refresh_token');
+      localStorage.removeItem('greenpath_registration_token');
+      sessionUserIdRef.current = null;
+      loadedRoleRef.current = null;
+      setIsAuthenticated(false);
+      setAuthLoading(false);
+      setCurrentRoleState('public' as UserRole);
+      setUserProfiles({});
+      setAllUsersList([]);
+      setProducts([]);
+      setOrders([]);
+      setConversations([]);
+      setWallet(EMPTY_WALLET);
+      setApplications([]);
+      setAuditLogs([]);
+      setRegionalMetrics([]);
+      setBankAccounts([]);
+      setWaybills([]);
+      setActiveView('login');
+      showNotification(`You were signed out after ${minutes} minutes of inactivity.`, 'error');
+    }, 15_000);
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, touch));
+      window.clearInterval(timer);
+    };
+  }, [isAuthenticated, platformConfig.security.sessionTimeoutMinutes]);
 
   // ---- Data loaders (all dynamic, from the Django backend) ------------------
 
@@ -421,6 +567,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
     } else if (role === 'retailer') {
       attempts.push(async () => LIST(await api.products.wholesalerListings({ page_size: 100 })));
+    } else if (
+      ['user_admin', 'top_user_admin', 'super_admin', 'financial_manager', 'logistics_manager', 'customer_support'].includes(role)
+    ) {
+      // Staff workspaces load the catalog inside their own screens with the
+      // endpoints their role can actually read. Prefetching buyer listing feeds
+      // here only produced guaranteed 403s in the console.
+      setProducts([]);
+      return;
     } else {
       attempts.push(
         async () => LIST(await api.products.farmerListings({ page_size: 100 })),
@@ -453,6 +607,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setPlatformConfig((prev) => ({
           ...prev,
           platformTitle: contentRes?.data?.platform_name || prev.platformTitle,
+          amharicTitle: (content as any).amharic_title ?? prev.amharicTitle,
+          oromoTitle: (content as any).oromo_title ?? prev.oromoTitle,
           security: {
             ...prev.security,
             maxFailedAttempts: num(settings.max_failed_login_attempts, prev.security.maxFailedAttempts),
@@ -462,11 +618,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           websiteContent: {
             ...prev.websiteContent,
             ...(content as any),
-            heroHeadline: (content as any).landing_title || prev.websiteContent.heroHeadline,
-            heroSubtitle: (content as any).landing_subtitle || prev.websiteContent.heroSubtitle,
-            aboutDescription: (content as any).about_description || prev.websiteContent.aboutDescription,
-            contactEmail: (content as any).contact_email || prev.websiteContent.contactEmail,
-            contactPhone: (content as any).contact_phone || prev.websiteContent.contactPhone,
+            amharicTitle: (content as any).amharic_title ?? prev.websiteContent.amharicTitle,
+            oromoTitle: (content as any).oromo_title ?? prev.websiteContent.oromoTitle,
+            heroHeadline: (content as any).landing_title ?? prev.websiteContent.heroHeadline,
+            heroSubtitle: (content as any).landing_subtitle ?? prev.websiteContent.heroSubtitle,
+            aboutDescription: (content as any).about_description ?? prev.websiteContent.aboutDescription,
+            contactEmail: (content as any).contact_email ?? prev.websiteContent.contactEmail,
+            contactPhone: (content as any).contact_phone ?? prev.websiteContent.contactPhone,
           },
         }));
         return;
@@ -480,14 +638,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setPlatformConfig((prev) => ({
         ...prev,
         platformTitle: res.data?.platform_name || prev.platformTitle,
+        amharicTitle: (content as any).amharic_title ?? prev.amharicTitle,
+        oromoTitle: (content as any).oromo_title ?? prev.oromoTitle,
         websiteContent: {
           ...prev.websiteContent,
           ...(content as any),
-          heroHeadline: (content as any).landing_title || prev.websiteContent.heroHeadline,
-          heroSubtitle: (content as any).landing_subtitle || prev.websiteContent.heroSubtitle,
-          aboutDescription: (content as any).about_description || prev.websiteContent.aboutDescription,
-          contactEmail: (content as any).contact_email || prev.websiteContent.contactEmail,
-          contactPhone: (content as any).contact_phone || prev.websiteContent.contactPhone,
+          amharicTitle: (content as any).amharic_title ?? prev.websiteContent.amharicTitle,
+          oromoTitle: (content as any).oromo_title ?? prev.websiteContent.oromoTitle,
+          heroHeadline: (content as any).landing_title ?? prev.websiteContent.heroHeadline,
+          heroSubtitle: (content as any).landing_subtitle ?? prev.websiteContent.heroSubtitle,
+          aboutDescription: (content as any).about_description ?? prev.websiteContent.aboutDescription,
+          contactEmail: (content as any).contact_email ?? prev.websiteContent.contactEmail,
+          contactPhone: (content as any).contact_phone ?? prev.websiteContent.contactPhone,
         },
       }));
     } catch {
@@ -507,8 +669,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         loadPlatformConfig(role),
       ]);
       const staffRoles: UserRole[] = ['user_admin', 'top_user_admin', 'super_admin', 'financial_manager'];
+      // User-administration endpoints are restricted to the admin roles; the
+      // regional aggregate endpoint is available to finance, super and top
+      // admins only (user admins have no payment visibility).
+      const adminRoles: UserRole[] = ['user_admin', 'top_user_admin', 'super_admin'];
+      const regionalRoles: UserRole[] = ['financial_manager', 'top_user_admin', 'super_admin'];
       if (staffRoles.includes(role)) {
-        await Promise.allSettled([loadAdminData(), loadRegionalMetrics()]);
+        const tasks: Array<Promise<void>> = [];
+        if (adminRoles.includes(role)) tasks.push(loadAdminData());
+        if (regionalRoles.includes(role)) tasks.push(loadRegionalMetrics());
+        await Promise.allSettled(tasks);
       }
     },
     [loadProductsForRole, loadOrders, loadWalletData, loadConversations, loadWaybills, loadPlatformConfig, loadAdminData, loadRegionalMetrics]
@@ -550,7 +720,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const setCurrentRole = (role: UserRole) => {
     setCurrentRoleState(role);
-    showNotification(`Active role switched to: ${role.replace('_', ' ').toUpperCase()}`);
   };
 
   const updateCurrentUser = async (updates: Partial<UserProfile>) => {
@@ -1201,15 +1370,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       if (
         currentRole === 'super_admin' &&
-        (newConfig.websiteContent || newConfig.platformTitle)
+        (newConfig.websiteContent ||
+          newConfig.platformTitle !== undefined ||
+          newConfig.amharicTitle !== undefined ||
+          newConfig.oromoTitle !== undefined)
       ) {
         const content = newConfig.websiteContent;
         const contentPayload: Record<string, string> = {};
-        if (content?.heroHeadline) contentPayload.landing_title = content.heroHeadline;
-        if (content?.heroSubtitle) contentPayload.landing_subtitle = content.heroSubtitle;
-        if (content?.aboutDescription) contentPayload.about_description = content.aboutDescription;
-        if (content?.contactEmail) contentPayload.contact_email = content.contactEmail;
-        if (content?.contactPhone) contentPayload.contact_phone = content.contactPhone;
+        // `!== undefined` (not truthiness) lets an admin intentionally clear a
+        // field; otherwise empty input was silently discarded.
+        if (content?.heroHeadline !== undefined) contentPayload.landing_title = content.heroHeadline;
+        if (content?.heroSubtitle !== undefined) contentPayload.landing_subtitle = content.heroSubtitle;
+        if (content?.aboutDescription !== undefined) contentPayload.about_description = content.aboutDescription;
+        if (content?.contactEmail !== undefined) contentPayload.contact_email = content.contactEmail;
+        if (content?.contactPhone !== undefined) contentPayload.contact_phone = content.contactPhone;
+        const amharicTitle = content?.amharicTitle ?? newConfig.amharicTitle;
+        const oromoTitle = content?.oromoTitle ?? newConfig.oromoTitle;
+        if (amharicTitle !== undefined) contentPayload.amharic_title = amharicTitle;
+        if (oromoTitle !== undefined) contentPayload.oromo_title = oromoTitle;
         await api.superadmin.updateWebsiteContent({
           ...(newConfig.platformTitle ? { platform_name: newConfig.platformTitle } : {}),
           ...(Object.keys(contentPayload).length ? { content: contentPayload } : {}),
@@ -1304,7 +1482,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         sendMessage: sendMessage as any,
         waybills,
         notification,
+        notificationType,
         setNotification: showNotification,
+        dismissNotification,
         aiModalOpen,
         setAiModalOpen,
         failedLoginAttempts,

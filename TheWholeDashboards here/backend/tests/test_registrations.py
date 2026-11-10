@@ -885,3 +885,189 @@ def test_regional_admin_cannot_open_activity_for_staff_outside_its_scope(api):
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("role", "scope_type", "level"),
+    [
+        (Role.REGIONAL_ADMIN, "REGIONAL", LocationLevel.REGION),
+        (Role.ZONAL_ADMIN, "ZONAL", LocationLevel.ZONE),
+        (Role.WEREDA_ADMIN, "WOREDA", LocationLevel.WOREDA),
+    ],
+)
+def test_top_user_admin_can_create_geographic_admins(api, role, scope_type, level):
+    top_admin = User.objects.create_user(
+        email="top-hierarchy-admin@test.et",
+        password="TestPass123!",
+        full_name="Top Hierarchy Admin",
+        role=Role.TOP_USER_ADMIN,
+        status=AccountStatus.APPROVED,
+    )
+    location = _location(
+        f"{scope_type.title()} Assignment {role}",
+        f"hierarchy-assignment-{role.lower()}",
+        level=level,
+    )
+    api.force_authenticate(user=top_admin)
+
+    response = api.post(
+        "/api/v1/superadmin/accounts/",
+        {
+            "full_name": f"{scope_type.title()} Administrator",
+            "email": f"{scope_type.lower()}-admin@test.et",
+            "password": "TestPass123!",
+            "role": role,
+            "scope_level": "LOCATION",
+            "scope_type": scope_type,
+            "scope_location": str(location.pk),
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    created = User.objects.get(email=f"{scope_type.lower()}-admin@test.et")
+    scope = AdministratorScope.objects.get(user=created)
+    assert created.role == role
+    assert scope.location_id == location.pk
+
+
+def test_top_user_admin_feature_grants_are_persisted_and_enforced(api):
+    top_admin = User.objects.create_user(
+        email="top-feature-admin@test.et",
+        password="TestPass123!",
+        full_name="Top Feature Admin",
+        role=Role.TOP_USER_ADMIN,
+        status=AccountStatus.APPROVED,
+    )
+    region = _location("Feature Scope Region", "feature-scope-region")
+    admin = User.objects.create_user(
+        email="feature-scoped-admin@test.et",
+        password="TestPass123!",
+        full_name="Feature Scoped Admin",
+        role=Role.REGIONAL_ADMIN,
+        status=AccountStatus.APPROVED,
+    )
+    AdministratorScope.objects.update_or_create(
+        user=admin,
+        defaults={"level": AdministratorScope.Level.LOCATION, "location": region},
+    )
+    api.force_authenticate(user=top_admin)
+
+    response = api.patch(
+        f"/api/v1/superadmin/accounts/{admin.pk}/dashboard-features/",
+        {"features": ["regional_reports"]},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["features"] == ["regional_reports"]
+
+    api.force_authenticate(user=admin)
+    assert api.get("/api/v1/reports/regional-analytics/").status_code == 200
+    assert api.get("/api/v1/admin/users/").status_code == 403
+    assert api.get("/api/v1/admin/products/").status_code == 403
+
+
+def test_regional_admin_creates_scoped_zonal_admin_with_create_time_flags(api):
+    region = _location("Delegation Amhara", "delegation-amhara", level=LocationLevel.REGION)
+    zone = _location("Delegation South Wello", "delegation-south-wello", parent=region, level=LocationLevel.ZONE)
+    outside_region = _location("Delegation Oromia", "delegation-oromia", level=LocationLevel.REGION)
+    outside_zone = _location("Delegation East Shewa", "delegation-east-shewa", parent=outside_region, level=LocationLevel.ZONE)
+    regional = User.objects.create_user(
+        email="delegation-regional@test.et",
+        password="TestPass123!",
+        full_name="Delegation Regional Admin",
+        role=Role.REGIONAL_ADMIN,
+        status=AccountStatus.APPROVED,
+    )
+    AdministratorScope.objects.update_or_create(
+        user=regional,
+        defaults={"level": AdministratorScope.Level.LOCATION, "location": region,
+                  "feature_flags": ["admin_management", "regional_reports", "registration_review"]},
+    )
+    api.force_authenticate(user=regional)
+
+    options = api.get("/api/v1/superadmin/accounts/creation-options/")
+    assert options.status_code == 200, options.data
+    assert options.data["creatable_roles"] == [Role.WEREDA_ADMIN, Role.ZONAL_ADMIN]
+    assert set(options.data["available_dashboard_features"]) == {
+        "admin_management", "regional_reports", "registration_review"
+    }
+
+    payload = {
+        "full_name": "Scoped South Wello Admin",
+        "email": "scoped-south-wello@test.et",
+        "password": "TestPass123!",
+        "role": Role.ZONAL_ADMIN,
+        "scope_level": "LOCATION",
+        "scope_type": "ZONAL",
+        "scope_location": str(zone.pk),
+        "dashboard_features": ["regional_reports", "registration_review"],
+    }
+    response = api.post("/api/v1/superadmin/accounts/", payload, format="json")
+    assert response.status_code == 201, response.data
+    child = User.objects.get(email=payload["email"])
+    child_scope = AdministratorScope.objects.get(user=child)
+    assert child_scope.location_id == zone.pk
+    assert child_scope.feature_flags == ["regional_reports", "registration_review"]
+    delegated = api.patch(
+        f"/api/v1/superadmin/accounts/{child.pk}/dashboard-features/",
+        {"features": ["regional_reports"]},
+        format="json",
+    )
+    assert delegated.status_code == 200, delegated.data
+    forbidden_grant = api.patch(
+        f"/api/v1/superadmin/accounts/{child.pk}/dashboard-features/",
+        {"features": ["user_management"]},
+        format="json",
+    )
+    assert forbidden_grant.status_code == 403
+
+    payload["email"] = "out-of-scope-zonal@test.et"
+    payload["scope_location"] = str(outside_zone.pk)
+    denied = api.post("/api/v1/superadmin/accounts/", payload, format="json")
+    assert denied.status_code == 400
+    assert not User.objects.filter(email=payload["email"]).exists()
+
+
+def test_zonal_admin_can_create_only_wereda_admin_inside_assigned_zone(api):
+    region = _location("Delegation Zone Region", "delegation-zone-region", level=LocationLevel.REGION)
+    zone = _location("Delegation Zone", "delegation-zone", parent=region, level=LocationLevel.ZONE)
+    wereda = _location("Delegation Wereda", "delegation-wereda", parent=zone, level=LocationLevel.WOREDA)
+    other_zone = _location("Delegation Other Zone", "delegation-other-zone", parent=region, level=LocationLevel.ZONE)
+    outside_wereda = _location("Delegation Outside Wereda", "delegation-outside-wereda", parent=other_zone, level=LocationLevel.WOREDA)
+    zonal = User.objects.create_user(
+        email="delegation-zonal@test.et",
+        password="TestPass123!",
+        full_name="Delegation Zonal Admin",
+        role=Role.ZONAL_ADMIN,
+        status=AccountStatus.APPROVED,
+    )
+    AdministratorScope.objects.update_or_create(
+        user=zonal,
+        defaults={"level": AdministratorScope.Level.LOCATION, "location": zone,
+                  "feature_flags": ["admin_management", "regional_reports"]},
+    )
+    api.force_authenticate(user=zonal)
+    options = api.get("/api/v1/superadmin/accounts/creation-options/")
+    assert options.status_code == 200, options.data
+    assert options.data["creatable_roles"] == [Role.WEREDA_ADMIN]
+    assert options.data["scope_location_id"] == str(zone.pk)
+
+    payload = {
+        "full_name": "Delegation Wereda Admin",
+        "email": "delegation-wereda-admin@test.et",
+        "password": "TestPass123!",
+        "role": Role.WEREDA_ADMIN,
+        "scope_level": "LOCATION",
+        "scope_type": "WOREDA",
+        "scope_location": str(wereda.pk),
+        "dashboard_features": ["regional_reports"],
+    }
+    response = api.post("/api/v1/superadmin/accounts/", payload, format="json")
+    assert response.status_code == 201, response.data
+
+    payload["email"] = "delegation-outside-wereda@test.et"
+    payload["scope_location"] = str(outside_wereda.pk)
+    denied = api.post("/api/v1/superadmin/accounts/", payload, format="json")
+    assert denied.status_code == 400
+    assert not User.objects.filter(email=payload["email"]).exists()

@@ -9,10 +9,11 @@ Nothing here is sampled or hard-coded.
 from collections import defaultdict
 from datetime import timedelta
 
-from django.db.models import Count, Q
+from django.db.models import Q
 from django.utils import timezone
 
-from registrations.models import AdministrativeLocation, UserRegistration
+from registrations.models import AdministratorScope, AdministrativeLocation, UserRegistration
+from registrations.services import SCOPED_ADMIN_ROLES, administrator_scope_for, location_descendant_ids
 from users.models import AccountStatus, AuditLog, Role, User
 
 MARKETPLACE_ROLES = (Role.FARMER, Role.WHOLESALER, Role.RETAILER, Role.DRIVER)
@@ -98,15 +99,33 @@ def _registration_snapshots():
         item = (reg.user, reg, region, zone, wereda, kebele)
         (located if region else unlocated).append(item)
     # Staff and any user without a registration still count, classified as unlocated.
-    covered_users = {item[0].pk for item in located}
+    # Registrations whose location has no region ancestor are already in the
+    # ``unlocated`` bucket. Exclude both buckets here or those users are added
+    # a second time by the fallback account pass below.
+    covered_users = {item[0].pk for item in located + unlocated}
     for user in User.objects.exclude(pk__in=covered_users):
         unlocated.append((user, None, None, None, None, None))
     return located, unlocated
 
 
-def regional_overview():
+def regional_overview(actor=None):
     """Region-level comparison: users by role and status, plus registration trends."""
     located, unlocated = _registration_snapshots()
+
+    if actor and actor.role in SCOPED_ADMIN_ROLES:
+        scope = administrator_scope_for(actor)
+        if scope is None and actor.role != Role.TOP_USER_ADMIN:
+            located, unlocated = [], []
+        elif scope and scope.level == AdministratorScope.Level.LOCATION:
+            visible_location_ids = set(location_descendant_ids(scope.location))
+            located = [item for item in located if item[1] and item[1].location_id in visible_location_ids]
+            unlocated = [
+                item for item in unlocated
+                if AdministratorScope.objects.filter(
+                    user=item[0], level=AdministratorScope.Level.LOCATION,
+                    location_id__in=visible_location_ids,
+                ).exists()
+            ]
 
     by_region = defaultdict(_empty_bucket)
     unclassified = _empty_bucket()
@@ -150,17 +169,19 @@ def regional_overview():
         keys = sorted(series)[-n:]
         return [{"period": k, "count": series[k]} for k in keys]
 
-    role_breakdown = (
-        User.objects.values("role").annotate(total=Count("id")).order_by("-total")
-    )
+    scoped_users = [item[0] for item in located + unlocated]
+    role_counts = defaultdict(int)
+    for user in scoped_users:
+        role_counts[user.role] += 1
 
     return {
         "generated_at": now.isoformat(),
-        "total_users": User.objects.count(),
+        "total_users": len(scoped_users),
         "regions": regions,
         "unclassified": unclassified_out,
         "role_breakdown": [
-            {"role": row["role"], "total": row["total"]} for row in role_breakdown
+            {"role": role, "total": total}
+            for role, total in sorted(role_counts.items(), key=lambda item: item[1], reverse=True)
         ],
         "trends": {
             "monthly": _last_n(monthly, 12),

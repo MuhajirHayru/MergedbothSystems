@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/apiClient';
+import { apiClient } from '../../services/apiClient';
 import { formatApiError } from '../../lib/apiErrors';
 import { LocationPicker, AdministrativeLocation } from '../staff/LocationPicker';
 import {
@@ -22,6 +23,8 @@ import {
   Plus,
   Search,
   ShieldOff,
+  Truck,
+  LifeBuoy,
   UserCog,
   UserPlus,
   Users,
@@ -34,7 +37,7 @@ interface StaffAccount {
   email: string;
   phone: string;
   location: string;
-  role: 'USER_ADMIN' | 'FINANCIAL_MANAGER';
+  role: 'USER_ADMIN' | 'REGIONAL_ADMIN' | 'ZONAL_ADMIN' | 'WEREDA_ADMIN' | 'FINANCIAL_MANAGER' | 'LOGISTICS_MANAGER' | 'CUSTOMER_SUPPORT';
   role_display: string;
   status: string;
   is_staff: boolean;
@@ -42,15 +45,28 @@ interface StaffAccount {
   last_login: string | null;
   scope_label: string;
   location_name: string;
+  location_id?: string;
+  location_flag?: string;
+  location_flag_image?: string;
 }
 
 interface CreationOptions {
   scope_types: string[];
   can_create_top_level: boolean;
+  can_create_regional_admin: boolean;
+  can_create_zonal_admin: boolean;
+  can_create_wereda_admin: boolean;
   can_create_financial_manager: boolean;
+  can_create_logistics_manager: boolean;
+  can_create_customer_support: boolean;
+  can_set_location_flag?: boolean;
   scope_location_id: string | null;
   current_scope: string;
+  current_flag?: string;
 }
+
+// Regional insignia choices — the Super Admin may also paste any glyph.
+// Flag pictures are browsed from disk per location — no fixed palette.
 
 const STATUS_FILTERS = ['ALL', 'APPROVED', 'PENDING', 'SUSPENDED', 'REJECTED', 'DEACTIVATED'];
 
@@ -133,7 +149,7 @@ export const StaffManagementView: React.FC = () => {
   const [locationFilter, setLocationFilter] = useState<AdministrativeLocation | null>(null);
 
   const [stats, setStats] = useState({ total: 0, active: 0, suspended: 0, pending: 0 });
-  const [roleCounts, setRoleCounts] = useState({ userAdmin: 0, financialManager: 0 });
+  const [roleCounts, setRoleCounts] = useState({ userAdmin: 0, regionalAdmin: 0, zonalAdmin: 0, weredaAdmin: 0, financialManager: 0, logisticsManager: 0, customerSupport: 0 });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<StaffAccount | null>(null);
@@ -192,16 +208,29 @@ export const StaffManagementView: React.FC = () => {
         return 0;
       }
     };
-    const [total, active, suspended, pending, userAdmins, financialManagers] = await Promise.all([
+    const [total, active, suspended, pending, userAdmins, regionalAdmins, zonalAdmins, weredaAdmins, financialManagers, logisticsManagers, customerSupports] = await Promise.all([
       countFor({ status: 'ALL' }),
       countFor({ status: 'APPROVED' }),
       countFor({ status: 'SUSPENDED' }),
       countFor({ status: 'PENDING' }),
       countFor({ status: 'ALL', role: 'USER_ADMIN' }),
+      countFor({ status: 'ALL', role: 'REGIONAL_ADMIN' }),
+      countFor({ status: 'ALL', role: 'ZONAL_ADMIN' }),
+      countFor({ status: 'ALL', role: 'WEREDA_ADMIN' }),
       countFor({ status: 'ALL', role: 'FINANCIAL_MANAGER' }),
+      countFor({ status: 'ALL', role: 'LOGISTICS_MANAGER' }),
+      countFor({ status: 'ALL', role: 'CUSTOMER_SUPPORT' }),
     ]);
     setStats({ total, active, suspended, pending });
-    setRoleCounts({ userAdmin: userAdmins, financialManager: financialManagers });
+    setRoleCounts({
+      userAdmin: userAdmins,
+      regionalAdmin: regionalAdmins,
+      zonalAdmin: zonalAdmins,
+      weredaAdmin: weredaAdmins,
+      financialManager: financialManagers,
+      logisticsManager: logisticsManagers,
+      customerSupport: customerSupports,
+    });
   }, []);
 
   useEffect(() => {
@@ -336,11 +365,38 @@ export const StaffManagementView: React.FC = () => {
         </div>
         <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <MapPin className="w-4 h-4 text-[#15803D] dark:text-emerald-400" />
+            Regional · Zonal · Wereda admins
+          </div>
+          <span className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
+            {roleCounts.regionalAdmin + roleCounts.zonalAdmin + roleCounts.weredaAdmin}
+          </span>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
             <BadgeCheck className="w-4 h-4 text-[#15803D] dark:text-emerald-400" />
             Financial Managers
           </div>
           <span className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
             {roleCounts.financialManager}
+          </span>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <Truck className="w-4 h-4 text-[#15803D] dark:text-emerald-400" />
+            Logistics Managers
+          </div>
+          <span className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
+            {roleCounts.logisticsManager}
+          </span>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <LifeBuoy className="w-4 h-4 text-[#15803D] dark:text-emerald-400" />
+            Customer Support Staff
+          </div>
+          <span className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
+            {roleCounts.customerSupport}
           </span>
         </div>
       </div>
@@ -367,7 +423,12 @@ export const StaffManagementView: React.FC = () => {
               >
                 <option value="">All roles</option>
                 <option value="USER_ADMIN">User Admin</option>
+                <option value="REGIONAL_ADMIN">Regional Admin</option>
+                <option value="ZONAL_ADMIN">Zonal Admin</option>
+                <option value="WEREDA_ADMIN">Wereda Admin</option>
                 <option value="FINANCIAL_MANAGER">Financial Manager</option>
+                <option value="LOGISTICS_MANAGER">Logistics Manager</option>
+                <option value="CUSTOMER_SUPPORT">Customer Support</option>
               </select>
               <select
                 value={scopeFilter}
@@ -480,7 +541,8 @@ export const StaffManagementView: React.FC = () => {
                       <div className="font-medium text-slate-800 dark:text-slate-200">
                         {account.scope_label || account.role_display}
                       </div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                        {account.location_flag_image && <img src={account.location_flag_image} alt="" className="h-4 w-6 rounded-md object-cover shadow-sm" aria-hidden="true" />}
                         {account.location_name || account.location || '—'}
                       </div>
                     </td>
@@ -629,17 +691,23 @@ const CreateStaffModal: React.FC<{
 }> = ({ options, onClose, onCreated, onNotify }) => {
   const panelRef = useModalA11y<HTMLFormElement>(onClose);
   const scoped = Boolean(options.scope_location_id);
+  const HIERARCHY_ROLES = ['REGIONAL_ADMIN', 'ZONAL_ADMIN', 'WEREDA_ADMIN'] as const;
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'USER_ADMIN' | 'FINANCIAL_MANAGER'>('USER_ADMIN');
+  const [role, setRole] = useState<'USER_ADMIN' | 'REGIONAL_ADMIN' | 'ZONAL_ADMIN' | 'WEREDA_ADMIN' | 'FINANCIAL_MANAGER' | 'LOGISTICS_MANAGER' | 'CUSTOMER_SUPPORT'>('USER_ADMIN');
+  const [baseSalary, setBaseSalary] = useState('');
+  const [monthlyCommission, setMonthlyCommission] = useState('');
   const [globalScope, setGlobalScope] = useState(false);
   const [location, setLocation] = useState<AdministrativeLocation | null>(null);
+  const [flagFile, setFlagFile] = useState<File | null>(null);
+  const [flagPath, setFlagPath] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const canPickGlobal = options.can_create_top_level && !scoped;
+  const isHierarchyRole = (HIERARCHY_ROLES as readonly string[]).includes(role);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -657,6 +725,10 @@ const CreateStaffModal: React.FC<{
       setError('Choose the administrative location this account will manage.');
       return;
     }
+    if (isHierarchyRole && !location) {
+      setError(`Choose the ${role === 'REGIONAL_ADMIN' ? 'region' : role === 'ZONAL_ADMIN' ? 'zone' : 'wereda'} this administrator will manage.`);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -667,13 +739,45 @@ const CreateStaffModal: React.FC<{
         password,
         role,
         location: location?.name || '',
+        ...(role !== 'USER_ADMIN' && (baseSalary || monthlyCommission)
+          ? {
+              base_monthly_salary: baseSalary || '0',
+              monthly_commission: monthlyCommission || '0',
+            }
+          : {}),
         ...(role === 'USER_ADMIN'
           ? globalScope
             ? { scope_level: 'GLOBAL' }
             : { scope_level: 'LOCATION', scope_location: location?.id }
           : {}),
+        ...(isHierarchyRole
+          ? {
+              scope_level: 'LOCATION',
+              scope_type: role === 'REGIONAL_ADMIN' ? 'REGIONAL' : role === 'ZONAL_ADMIN' ? 'ZONAL' : 'WOREDA',
+              scope_location: location?.id,
+            }
+          : {}),
       });
+      // The flag picture rides a second multipart call to the location-flag endpoint.
+      if (isHierarchyRole && location) {
+        try {
+          if (flagFile) {
+            const form = new FormData();
+            form.append('flag_image', flagFile);
+            await apiClient.patch(`/superadmin/locations/${location.id}/flag/`, form, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+          } else if (flagPath.trim()) {
+            const value = flagPath.trim();
+            const body = value.toLowerCase().startsWith('http') ? { flag_url: value } : { flag_path: value };
+            await apiClient.patch(`/superadmin/locations/${location.id}/flag/`, body);
+          }
+        } catch (flagErr: any) {
+          onNotify(`Staff member created, but the flag picture could not be saved: ${formatApiError(flagErr, 'upload failed')}`);
+        }
+      }
       onNotify(`${fullName.trim()} was created successfully.`);
+      setFlagFile(null); setFlagPath('');
       onCreated();
     } catch (err: any) {
       setError(formatApiError(err, 'The staff account could not be created.'));
@@ -752,19 +856,65 @@ const CreateStaffModal: React.FC<{
           <Field label="Staff role">
             <select
               value={role}
-              onChange={(event) => setRole(event.target.value as 'USER_ADMIN' | 'FINANCIAL_MANAGER')}
+              onChange={(event) => setRole(event.target.value as typeof role)}
               className={inputClass}
             >
               <option value="USER_ADMIN">Administrative user (User Admin)</option>
+              {options.can_create_regional_admin && (
+                <option value="REGIONAL_ADMIN">Regional Administrator</option>
+              )}
+              {options.can_create_zonal_admin && (
+                <option value="ZONAL_ADMIN">Zonal Administrator</option>
+              )}
+              {options.can_create_wereda_admin && (
+                <option value="WEREDA_ADMIN">Wereda Administrator</option>
+              )}
               {options.can_create_financial_manager && (
                 <option value="FINANCIAL_MANAGER">Financial Manager</option>
+              )}
+              {options.can_create_logistics_manager && (
+                <option value="LOGISTICS_MANAGER">Logistics Manager</option>
+              )}
+              {options.can_create_customer_support && (
+                <option value="CUSTOMER_SUPPORT">Customer Support Staff</option>
               )}
             </select>
           </Field>
 
-          {role === 'USER_ADMIN' ? (
+          {role !== 'USER_ADMIN' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Monthly base salary (ETB)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={baseSalary}
+                  onChange={(event) => setBaseSalary(event.target.value)}
+                  className={inputClass}
+                  placeholder="e.g. 12000"
+                />
+              </Field>
+              <Field label="Monthly commission (ETB)">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={monthlyCommission}
+                  onChange={(event) => setMonthlyCommission(event.target.value)}
+                  className={inputClass}
+                  placeholder="0 if none"
+                />
+              </Field>
+              <p className="sm:col-span-2 text-[11px] text-slate-500 dark:text-slate-400">
+                Used by the Financial Manager's month-end payroll: base + commission − deductions − tax,
+                paid into the staff member's wallet as a salary invoice.
+              </p>
+            </div>
+          )}
+
+          {role === 'USER_ADMIN' || isHierarchyRole ? (
             <div className="space-y-2">
-              {canPickGlobal && (
+              {role === 'USER_ADMIN' && canPickGlobal && (
                 <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700 dark:text-slate-200">
                   <input
                     type="checkbox"
@@ -775,14 +925,51 @@ const CreateStaffModal: React.FC<{
                   Top-level administrator with nationwide scope
                 </label>
               )}
-              {!globalScope && (
+              {(role !== 'USER_ADMIN' || !globalScope) && (
                 <LocationPicker
                   value={location?.id || null}
                   onChange={(selected) => setLocation(selected)}
                   startParentId={options.scope_location_id}
                   scopeLabel={options.scope_location_id ? options.current_scope : ''}
-                  label="Geographic scope (region → zone → wereda)"
+                  label={
+                    isHierarchyRole
+                      ? role === 'REGIONAL_ADMIN'
+                        ? 'Region to administer'
+                        : role === 'ZONAL_ADMIN'
+                          ? 'Zone to administer'
+                          : 'Wereda to administer'
+                      : 'Geographic scope (region → zone → wereda)'
+                  }
                 />
+              )}
+              {isHierarchyRole && location && (location.level === 'REGION' || location.level === 'CITY') && options.can_set_location_flag !== false && (
+                <Field label={`Regional flag picture for ${location.name} (zones and weredas inherit it)`}>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    onChange={(event) => setFlagFile(event.target.files?.[0] || null)}
+                    className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-[#15803D] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
+                  />
+                  <input
+                    value={flagPath}
+                    onChange={(event) => { setFlagPath(event.target.value); if (event.target.value) setFlagFile(null); }}
+                    placeholder="…or paste a file path (C:\Users\…\flag.png) or an image link"
+                    aria-label="Flag picture file path or image link"
+                    className="mt-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                    PNG, JPEG, WebP or SVG, up to 2 MB. A pasted path can point at a file you just downloaded.
+                  </p>
+                </Field>
+              )}
+              {isHierarchyRole && location && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+                  {location.level === 'ZONE' || location.level === 'WOREDA'
+                    ? 'No flag needed — this administrator automatically displays the flag of their region. '
+                    : null}
+                  This administrator will see only the users, registrations and listings inside{' '}
+                  <strong>{location.name}</strong>, and every administrator above them sees the same data rolled up.
+                </p>
               )}
             </div>
           ) : (

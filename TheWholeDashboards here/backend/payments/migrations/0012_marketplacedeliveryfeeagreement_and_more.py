@@ -31,10 +31,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='marketplacedeliveryfeeagreement',
-            constraint=models.CheckConstraint(check=models.Q(('amount__gt', 0)), name='marketplace_delivery_fee_agreement_positive'),
+            constraint=models.CheckConstraint(condition=models.Q(('amount__gt', 0)), name='marketplace_delivery_fee_agreement_positive'),
         ),
         migrations.AddConstraint(
             model_name='marketplacedeliveryfeeagreement',
-            constraint=models.CheckConstraint(check=models.Q(('driver_proposal_version__gt', 0)), name='marketplace_delivery_fee_version_positive'),
+            constraint=models.CheckConstraint(condition=models.Q(('driver_proposal_version__gt', 0)), name='marketplace_delivery_fee_version_positive'),
         ),
     ]

@@ -21,6 +21,14 @@ CHANNEL_LAYERS = {
     "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
 }
 
+# Use a file-backed test database with a busy timeout. The default shared-cache
+# in-memory database deadlocked during migrations when a second in-process
+# connection (the pytest-django assertion connection) held a table lock; a file
+# database with SQLite's busy handler turns that deadlock into a normal retry.
+import tempfile as _tf
+DATABASES["default"]["TEST"] = {"NAME": _tf.mkdtemp(prefix="greenpath-test-db-") + "/test_db.sqlite3"}
+DATABASES["default"]["OPTIONS"] = {"timeout": 20}
+
 # WebsocketCommunicator handshakes without an Origin header, so
 # AllowedHostsOriginValidator falls back to comparing the Host header against
 # ALLOWED_HOSTS. Without this the handshake is refused before the consumer runs.

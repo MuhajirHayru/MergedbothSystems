@@ -633,14 +633,22 @@ export const MessagingWorkspace: React.FC<Props> = ({ initialPartner = null }) =
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div className="w-8 h-8 rounded-full bg-[#15803D]/10 text-[#15803D] dark:bg-emerald-950 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-center shrink-0">
-                  {initialsOf(partner?.full_name)}
-                </div>
+                {(() => {
+                  const headerPhoto = avatarUrl(partner);
+                  return headerPhoto ? (
+                    <img src={headerPhoto} alt="" className="w-8 h-8 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-[#15803D]/10 text-[#15803D] dark:bg-emerald-950 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-center shrink-0">
+                      {initialsOf(partner?.full_name)}
+                    </div>
+                  );
+                })()}
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                     {partner?.full_name || 'Conversation'}
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    {partner?.bio ? `${String(partner.bio).slice(0, 60)} · ` : ''}
                     {partnerMeta || 'GreenPath marketplace'}
                     {partner?.financially_verified && (
                       <span className="ml-1.5 text-emerald-700 dark:text-emerald-400 font-semibold">Verified</span>

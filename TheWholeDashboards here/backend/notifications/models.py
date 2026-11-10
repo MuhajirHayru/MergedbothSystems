@@ -24,6 +24,10 @@ class Notification(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="actions_caused",
     )
+    announcement = models.ForeignKey(
+        "notifications.Announcement", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="notifications",
+    )
     type = models.CharField(max_length=30, choices=NotificationType.choices, default=NotificationType.SYSTEM)
     message = models.TextField()
     target_url = models.CharField(max_length=500, blank=True, default="")
@@ -36,3 +40,34 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.recipient.full_name}: {self.message[:50]}"
+
+
+class Announcement(models.Model):
+    """A platform-wide announcement broadcast to every active user.
+
+    Ending (or expiring) a broadcast removes the remaining in-app
+    notifications from every recipient's inbox; the Announcement row itself is
+    retained as the accountable history record.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="announcements",
+    )
+    recipient_count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "announcements"
+        ordering = ["-created_at"]
+
+    @property
+    def is_active(self) -> bool:
+        from django.utils import timezone
+        if self.ended_at:
+            return False
+        return not (self.expires_at and self.expires_at <= timezone.now())

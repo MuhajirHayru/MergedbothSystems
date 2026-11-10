@@ -72,3 +72,12 @@ debug.log
 
 # Temporary OpenCode files
 .claude/
+
+# Local QA scratch (agent test harness)
+__uitest/
+__rev_sources.py
+__rules_center_patch.txt
+# Database backups
+db.sqlite3.*
+media/
+htmlcov/

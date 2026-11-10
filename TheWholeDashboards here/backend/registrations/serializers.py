@@ -37,6 +37,7 @@ LICENSE_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 class LocationSerializer(serializers.ModelSerializer):
     level_display = serializers.CharField(source="get_level_display", read_only=True)
     has_children = serializers.SerializerMethodField()
+    flag = serializers.CharField(read_only=True)
 
     class Meta:
         model = AdministrativeLocation
@@ -48,6 +49,8 @@ class LocationSerializer(serializers.ModelSerializer):
             "level",
             "level_display",
             "has_children",
+            "flag",
+            "flag_image",
         ]
 
     def get_has_children(self, obj):

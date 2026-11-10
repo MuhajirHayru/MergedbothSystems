@@ -56,6 +56,23 @@ export interface ApiOrder {
   dispute_reason: string;
   rejection_reason: string;
   agreement_status: string | null;
+  financial_terms_snapshot?: null | {
+    status?: string;
+    currency?: string;
+    effective_at?: string;
+    gross_order_value?: string;
+    commission_amount?: string;
+    buyer_fee_amount?: string;
+    tax_amount?: string | null;
+    tax_payer_party?: string;
+    issues?: string[];
+    fee_lines?: Array<{
+      method: string;
+      payer_party: string;
+      payer_name: string;
+      amount: string;
+    }>;
+  };
   allowed_transitions: string[];
   date: string;
   created_at: string;

@@ -12,6 +12,7 @@ export interface ChatParticipant {
   location?: string;
   phone?: string;
   profile_photo?: string | null;
+  bio?: string;
   financially_verified?: boolean;
 }
 

@@ -48,8 +48,10 @@ function Kpi({ label, value, sub, icon: Icon, color, onClick, destination }: { l
   );
 }
 
-const money = (v: string | number) =>
-  Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (v: string | number | null | undefined): string => {
+  const num = Number(v);
+  return Number.isFinite(num) ? num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+};
 
 const titleCase = (s: string) =>
   s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -92,7 +94,14 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
   }, []);
 
   if (loading) return <div className="p-8 text-center text-xs text-slate-500">Loading platform overview…</div>;
-  if (error) return <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 text-xs text-rose-700 dark:text-rose-300">{error}</div>;
+  if (error) return (
+    <div className="p-4 rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 space-y-3">
+      <div className="text-xs text-rose-700 dark:text-rose-300">{error}</div>
+      <button onClick={() => void load()} className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors">
+        Retry
+      </button>
+    </div>
+  );
   if (!data) return null;
 
   const roleData = Object.entries(data.users.by_role)
@@ -142,8 +151,8 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
 
       {/* KPI Row 2 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Platform Revenue" value={`${money(data.financials.revenue)} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" onClick={() => onNavigate('reports_regional')} destination="Financial Reports" />
-        <Kpi label="Payroll" value={`${money(data.financials.payroll)} ETB`} sub="Staff salaries paid" icon={Users} onClick={() => onNavigate('reports_regional')} destination="Financial Reports" />
+        <Kpi label="Platform Revenue" value={`${money(data.financials.revenue)} ETB`} sub="Commission + delivery fees" icon={TrendingUp} color="text-emerald-600" onClick={() => onNavigate('sa_revenue')} destination="Revenue Methods & Payers" />
+        <Kpi label="Payroll" value={`${money(data.financials.payroll)} ETB`} sub="Staff salaries paid" icon={Users} onClick={() => onNavigate('financial_payroll')} destination="Payroll & Staff Invoices" />
         <Kpi label="Freight Assigned" value={`${data.freight.assigned} / ${data.freight.assigned + data.freight.open}`} sub="Deliveries with drivers" icon={Truck} onClick={() => onNavigate('freight_bids')} destination="Freight Bidding" />
         <Kpi label="Support Open" value={data.support.open} sub={`${data.support.unanswered} unanswered`} icon={LifeBuoy} color={data.support.unanswered > 0 ? 'text-amber-600' : undefined} onClick={() => onNavigate('support_management')} destination="Support Inbox" />
       </div>
@@ -152,32 +161,51 @@ export const SuperAdminOverview: React.FC<{ onNavigate: (view: string) => void; 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Users by Role</div>
-          <div className="h-56" role="img" aria-label="Horizontal bar chart: number of registered users for each role">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={roleData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={110} interval={0} />
-                <Tooltip />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={14}>
-                  {roleData.map((_, i) => <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          {/* Height grows with the number of roles so every label gets its own
+              readable band instead of wrapping into a cramped stack. */}
+          <div
+            className="min-h-56"
+            style={{ height: Math.max(224, roleData.length * 34 + 20) }}
+            role="img"
+            aria-label="Horizontal bar chart: number of registered users for each role"
+          >
+            {roleData.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-xs text-slate-400 dark:text-slate-500">
+                No user data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={roleData} layout="vertical" barCategoryGap="30%">
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: 'currentColor' }} allowDecimals={false} className="text-slate-600 dark:text-slate-300" />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: 'currentColor' }} width={132} interval={0} className="text-slate-600 dark:text-slate-300" />
+                  <Tooltip contentStyle={{ fontSize: 11, backgroundColor: 'var(--tooltip-bg, white)', border: '1px solid var(--tooltip-border, #e2e8f0)' }} />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={14} isAnimationActive={false}>
+                    {roleData.map((_, i) => <Cell key={i} fill={ROLE_COLORS[i % ROLE_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
         <Card>
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-3">Order Status</div>
-          <div className="h-56 relative" role="img" aria-label="Donut chart: share of orders that are completed, pending, or disputed">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={orderStatus} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={50} outerRadius={75} paddingAngle={4}>
-                  {orderStatus.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="h-full min-h-56 relative" role="img" aria-label="Donut chart: share of orders that are completed, pending, or disputed">
+            {orderStatus.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-xs text-slate-400 dark:text-slate-500">
+                No order data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={orderStatus} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={50} outerRadius={75} paddingAngle={4} isAnimationActive={false}>
+                    {orderStatus.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 11, backgroundColor: 'var(--tooltip-bg, white)', border: '1px solid var(--tooltip-border, #e2e8f0)' }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
       </div>

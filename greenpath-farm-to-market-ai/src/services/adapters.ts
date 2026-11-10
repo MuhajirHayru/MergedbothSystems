@@ -1,5 +1,5 @@
 // Adapters mapping Django REST Framework payloads to the frontend's view types.
-import {
+import type {
   Product,
   Order,
   OrderStatus,
@@ -14,6 +14,7 @@ import {
   UserRole,
   RegionalFinancialMetric,
   DigitalWaybill,
+  DocumentRecord,
 } from '../types';
 
 // Django serves media from its own origin; resolve relative "/media/..." paths.
@@ -186,6 +187,8 @@ const DEPOSIT_STATUS_MAP: Record<string, DepositRecord['status']> = {
   APPROVED: 'Approved',
   FLAGGED: 'Flagged',
   REJECTED: 'Rejected',
+  FAILED: 'Rejected',
+  CANCELLED: 'Rejected',
 };
 
 const ROLE_MAP: Record<string, UserRole> = {
@@ -322,6 +325,7 @@ export function mapPendingUser(raw: any): RegistrationApplication {
     zone: '',
     wereda: '',
     submittedAt: fmtDate(raw.created_at),
+    submittedAtRaw: raw.created_at || undefined,
     status: raw.status === 'PENDING' ? 'pending' : raw.status === 'REJECTED' ? 'rejected' : 'approved',
     currentStage: 3,
     documents: [],
@@ -343,6 +347,7 @@ export function mapRegistration(raw: any): RegistrationApplication {
     businessName: raw.business_name || '',
     licenseNumber: raw.driving_license_number || '',
     submittedAt: fmtDate(raw.submitted_at || raw.created_at),
+    submittedAtRaw: raw.submitted_at || raw.created_at || undefined,
     status: raw.status === 'SUBMITTED' ? 'pending' : raw.status === 'APPROVED' ? 'approved' : 'rejected',
     currentStage: 3,
     documents: (raw.documents || []).map((d: any) => ({
@@ -365,24 +370,41 @@ export function mapAdminUser(raw: any): UserProfile {
     DRIVER: 'driver',
     FINANCIAL_MANAGER: 'financial_manager',
     USER_ADMIN: 'user_admin',
+    REGIONAL_ADMIN: 'regional_admin',
+    ZONAL_ADMIN: 'zonal_admin',
+    WEREDA_ADMIN: 'wereda_admin',
     TOP_USER_ADMIN: 'top_user_admin',
     SUPER_ADMIN: 'super_admin',
+    LOGISTICS_MANAGER: 'logistics_manager',
+    CUSTOMER_SUPPORT: 'customer_support',
   };
+  // Documents ride along from the registration summary so the paperwork stays
+  // visible after approval (directory + approved lists, not just pending review).
+  const summary = raw.registration_summary || null;
+  const documents: DocumentRecord[] = (summary?.documents || []).map((doc: any) => ({
+    id: String(doc.id),
+    name: doc.original_filename || String(doc.document_type || '').replace(/_/g, ' ').toLowerCase(),
+    type: String(doc.document_type || 'business_license').toLowerCase() as DocumentRecord['type'],
+    fileUrl: doc.file_url ? mediaUrl(doc.file_url) : '',
+    uploadDate: fmtDate(raw.created_at).split(',')[0],
+    status: doc.status === 'VERIFIED' ? 'verified' : doc.status === 'REJECTED' ? 'rejected' : 'pending',
+  }));
   return {
     id: String(raw.id),
     name: raw.full_name || raw.email,
     email: raw.email || '',
     phone: raw.phone || '',
     role: roleMap[raw.role] || 'farmer',
-    region: raw.location || '',
+    region: summary?.location_name || raw.location || '',
     zone: '',
     wereda: '',
     verificationStatus:
       raw.status === 'APPROVED' ? 'verified' : raw.status === 'PENDING' ? 'pending' : raw.status === 'SUSPENDED' ? 'suspended' : 'unverified',
     avatarUrl: raw.profile_photo ? mediaUrl(raw.profile_photo) : undefined,
     registrationDate: fmtDate(raw.created_at).split(',')[0],
+    registeredAt: raw.created_at || undefined,
     lastActivity: fmtDate(raw.updated_at),
-    documents: [],
+    documents,
   };
 }
 
@@ -411,6 +433,9 @@ export function deriveRegionalMetrics(users: UserProfile[], payments: any[]): Re
     payoutValueETB: 0,
     availableWalletETB: 0,
     heldWalletETB: 0,
+    // The client-side fallback has no location hierarchy, so every participant
+    // counts as lacking zone-level detail.
+    usersWithoutZoneDetail: list.length,
     zones: [],
   }));
 }

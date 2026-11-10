@@ -136,8 +136,8 @@ export const AuditLogsView: React.FC = () => {
                       <XAxis dataKey="day" tick={{ fontSize: 9 }} />
                       <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
                       <Tooltip />
-                      <Bar dataKey="total" fill="#15803D" />
-                      <Bar dataKey="failed" fill="#e11d48" />
+                      <Bar dataKey="total" fill="#15803D"  isAnimationActive={false} />
+                      <Bar dataKey="failed" fill="#e11d48"  isAnimationActive={false} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

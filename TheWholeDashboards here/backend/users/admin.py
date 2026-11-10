@@ -61,3 +61,8 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Audit rows are immutable: hiding the admin delete action keeps a
+        # mis-click from turning into a server error from AuditLogQuerySet.delete().
+        return False

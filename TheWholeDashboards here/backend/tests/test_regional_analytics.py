@@ -18,10 +18,36 @@ def test_overview_counts_match_database(farmer, wholesaler, super_admin):
     region_total = sum(r["total"] for r in data["regions"])
     assert region_total + data["unclassified"]["total"] == data["total_users"]
     roles = {r["role"]: r["total"] for r in data["role_breakdown"]}
+    assert sum(roles.values()) == data["total_users"]
     assert roles.get("FARMER", 0) >= 1
     assert roles.get("SUPER_ADMIN", 0) >= 1
     # trend periods are real timestamps buckets
     assert all("count" in t for t in data["trends"]["monthly"])
+
+
+def test_accounts_at_locations_without_region_ancestor_are_not_double_counted(farmer):
+    from registrations.models import AdministrativeLocation, LocationLevel, UserRegistration
+    from users.models import AccountStatus, Role, User
+
+    unanchored = AdministrativeLocation.objects.create(
+        source_id="regional-analytics-unanchored-zone",
+        name="Unanchored Zone",
+        level=LocationLevel.ZONE,
+    )
+    account = User.objects.create_user(
+        email="unanchored-registration@test.et",
+        password="TestPass123!",
+        full_name="Unanchored Registration",
+        role=Role.FARMER,
+        status=AccountStatus.PENDING,
+    )
+    UserRegistration.objects.create(user=account, location=unanchored)
+
+    data = regional_overview()
+
+    assert data["total_users"] == User.objects.count()
+    assert sum(row["total"] for row in data["regions"]) + data["unclassified"]["total"] == User.objects.count()
+    assert sum(row["total"] for row in data["role_breakdown"]) == User.objects.count()
 
 
 def test_drilldown_navigates_region_to_children(farmer, farmer_product):

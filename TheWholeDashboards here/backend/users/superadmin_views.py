@@ -9,7 +9,11 @@ Grants platform-wide governance:
 * FR-SA-05 — system health metrics (users, transactions, API performance).
 """
 from datetime import timedelta
+import io
 import json
+import urllib.error
+import urllib.request
+from urllib.parse import urlparse
 
 from django.db import transaction
 from django.db.models import Count, Q, Sum
@@ -17,7 +21,7 @@ from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -66,7 +70,19 @@ from registrations.services import (
     users_visible_to_admin,
 )
 
-ADMIN_SUBROLES = (Role.USER_ADMIN, Role.FINANCIAL_MANAGER)
+ADMIN_SUBROLES = (
+    Role.USER_ADMIN,
+    Role.REGIONAL_ADMIN,
+    Role.ZONAL_ADMIN,
+    Role.WEREDA_ADMIN,
+    Role.FINANCIAL_MANAGER,
+    Role.LOGISTICS_MANAGER,
+    Role.CUSTOMER_SUPPORT,
+)
+
+
+ALLOWED_FLAG_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/svg+xml")
+MAX_FLAG_IMAGE_BYTES = 2 * 1024 * 1024
 
 
 class _AuditMixin:
@@ -172,27 +188,107 @@ class AdminAccountViewSet(_AuditMixin, viewsets.ModelViewSet):
             )
         return qs.distinct().order_by("-created_at")
 
+    @action(detail=True, methods=["get", "patch"], url_path="dashboard-features")
+    def dashboard_features(self, request, pk=None):
+        """Read or set the explicit feature allow-list for a scoped admin."""
+        from registrations.services import DASHBOARD_FEATURES
+
+        from registrations.services import admin_dashboard_feature_enabled, features_available_to_admin
+
+        if request.user.role not in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN) and not admin_dashboard_feature_enabled(request.user, "admin_management"):
+            return Response({"detail": "The admin-management dashboard grant is required to change subordinate access."}, status=403)
+        staff = self.get_object()
+        if staff.role not in (
+            Role.USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN
+        ):
+            return Response({"detail": "Dashboard feature grants apply to scoped user administrators."}, status=400)
+        scope = AdministratorScope.objects.filter(user=staff).first()
+        if scope is None:
+            return Response({"detail": "The administrator has no geographic scope."}, status=409)
+        if request.method == "PATCH":
+            features = request.data.get("features")
+            if not isinstance(features, list) or any(not isinstance(item, str) for item in features):
+                return Response({"features": "Provide a list of enabled feature keys."}, status=400)
+            unknown = sorted(set(features) - set(DASHBOARD_FEATURES))
+            if unknown:
+                return Response({"features": f"Unknown feature key(s): {', '.join(unknown)}."}, status=400)
+            allowed = set(features_available_to_admin(request.user))
+            if not set(features).issubset(allowed):
+                return Response({"features": "You cannot delegate a dashboard feature that you do not have."}, status=403)
+            previous = scope.feature_flags
+            scope.feature_flags = sorted(set(features))
+            scope.save(update_fields=["feature_flags"])
+            self._audit(
+                "admin_dashboard_features_updated",
+                staff.email,
+                json.dumps({"previous": previous, "features": scope.feature_flags}, sort_keys=True),
+            )
+        return Response({
+            "staff_id": str(staff.pk),
+            "features": scope.feature_flags,
+            "defaults": list(DASHBOARD_FEATURES),
+            "feature_labels": DASHBOARD_FEATURES,
+        })
+
+
+
     @action(detail=False, methods=["get"], url_path="creation-options")
     def creation_options(self, request):
+        from registrations.services import (
+            admin_dashboard_feature_enabled,
+            creatable_hierarchy_roles,
+            dashboard_flag_for,
+            dashboard_flag_image_for,
+            features_available_to_admin,
+            national_flag_image_url,
+        )
+
         scope = administrator_scope_for(request.user)
+        creatable = set(creatable_hierarchy_roles(request.user))
         return Response(
             {
                 "scope_types": allowed_staff_scope_types(request.user),
+                "creatable_roles": sorted(creatable),
+                "available_dashboard_features": features_available_to_admin(request.user),
+                "can_manage_admin_features": (
+                    request.user.role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN)
+                    or admin_dashboard_feature_enabled(request.user, "admin_management")
+                ),
                 "can_create_top_level": request.user.role == Role.SUPER_ADMIN,
+                "can_create_regional_admin": Role.REGIONAL_ADMIN in creatable,
+                "can_create_zonal_admin": Role.ZONAL_ADMIN in creatable,
+                "can_create_wereda_admin": Role.WEREDA_ADMIN in creatable,
                 "can_create_financial_manager": request.user.role == Role.SUPER_ADMIN,
+                "can_create_logistics_manager": request.user.role == Role.SUPER_ADMIN,
+                "can_create_customer_support": request.user.role == Role.SUPER_ADMIN,
                 "scope_location_id": (
                     str(scope.location_id)
                     if scope and scope.location_id
                     else None
                 ),
+                "current_scope_level": (
+                    scope.location.level
+                    if scope and scope.location_id
+                    else "NATIONWIDE"
+                ),
                 "current_scope": (
                     "Nationwide"
-                    if request.user.role == Role.SUPER_ADMIN
+                    if request.user.role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN)
                     or (scope and scope.level == AdministratorScope.Level.GLOBAL)
                     else str(scope.location)
                     if scope and scope.location_id
                     else ""
                 ),
+                "current_flag": dashboard_flag_for(scope, request.user.role),
+                "current_flag_image": (
+                    request.build_absolute_uri(dashboard_flag_image_for(scope, request.user.role))
+                    if dashboard_flag_image_for(scope, request.user.role) else ""
+                ),
+                "national_flag_image": (
+                    request.build_absolute_uri(national_flag_image_url())
+                    if national_flag_image_url() else ""
+                ),
+                "can_set_location_flag": request.user.role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN),
             }
         )
 
@@ -921,6 +1017,7 @@ class PlatformSettingsView(APIView):
         reason = values.pop("reason", "").strip()
         critical_fields = {
             "maintenance_mode",
+            "orders_disabled",
             "max_failed_login_attempts",
             "lockout_duration_minutes",
             "session_timeout_minutes",
@@ -937,6 +1034,11 @@ class PlatformSettingsView(APIView):
                 previous[field] = getattr(config, field)
                 setattr(config, field, values[field])
                 changed[field] = values[field]
+        if not changed and values:
+            # The client sent valid fields but every value already matches —
+            # this is a no-op, not an error.
+            return Response({"success": True, "settings": self._serialize(config),
+                             "message": "Settings are already at the requested values."})
         if not changed:
             return Response(
                 {
@@ -989,6 +1091,7 @@ class PlatformSettingsView(APIView):
             "require_approval": config.require_approval,
             "announcement": config.announcement,
             "maintenance_mode": config.maintenance_mode,
+            "orders_disabled": config.orders_disabled,
             "max_failed_login_attempts": config.max_failed_login_attempts,
             "lockout_duration_minutes": config.lockout_duration_minutes,
             "session_timeout_minutes": config.session_timeout_minutes,
@@ -1005,7 +1108,12 @@ class PlatformSettingsView(APIView):
     request=AnnouncementSerializer, responses=OpenApiTypes.OBJECT
 )
 class AnnouncementBroadcastView(APIView):
-    """POST /api/v1/superadmin/announcement/ — push an announcement to everyone."""
+    """POST /api/v1/superadmin/announcement/ (also /broadcast/) — push an announcement to everyone.
+
+    The announcement is recorded as an ``Announcement`` history row and can be
+    given an optional ``expires_hours`` (1–720) after which it is removed from
+    every inbox. Ending a broadcast keeps the history row for accountability.
+    """
 
     permission_classes = [IsSuperAdmin]
 
@@ -1015,21 +1123,52 @@ class AnnouncementBroadcastView(APIView):
             return Response(
                 {"success": False, "error": "Announcement text is required."}, status=400
             )
+        expires_hours = request.data.get("expires_hours")
+        expires_at = None
+        if expires_hours not in (None, "", "none"):
+            try:
+                hours = int(expires_hours)
+            except (TypeError, ValueError):
+                return Response(
+                    {"success": False, "error": "expires_hours must be an integer."}, status=400
+                )
+            if not 1 <= hours <= 720:
+                return Response(
+                    {"success": False, "error": "expires_hours must be between 1 and 720."}, status=400
+                )
+            expires_at = timezone.now() + timezone.timedelta(hours=hours)
+
         config = PlatformSettings.load()
         config.announcement = message
         config.updated_by = request.user
         config.save(update_fields=["announcement", "updated_by", "updated_at"])
 
+        from notifications.models import Announcement
         from notifications.services import notify
 
+        announcement = Announcement.objects.create(
+            message=message,
+            created_by=request.user,
+            expires_at=expires_at,
+        )
         created = notify(
-            roles=tuple(Role.values), type="SYSTEM", message=message, actor=request.user
+            roles=tuple(Role.values), type="SYSTEM", message=message, actor=request.user,
+            announcement=announcement,
+        )
+        announcement.recipient_count = len(created)
+        announcement.save(update_fields=["recipient_count"])
+        AuditLog.objects.create(
+            actor=request.user, action="announcement_broadcast",
+            detail=f"{message[:200]} (expires: {expires_at.isoformat() if expires_at else 'never'})",
         )
         return Response(
             {
                 "success": True,
                 "message": f"Announcement delivered to {len(created)} user(s).",
                 "recipients": len(created),
+                "sent_to": len(created),
+                "announcement_id": str(announcement.pk),
+                "expires_at": expires_at.isoformat() if expires_at else None,
             },
             status=201,
         )
@@ -1119,6 +1258,10 @@ class AuditLogListView(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = AuditLogSerializer
 
     def get_queryset(self):
+        from registrations.services import admin_dashboard_feature_enabled
+
+        if not admin_dashboard_feature_enabled(self.request.user, "administrative_audit"):
+            raise PermissionDenied("Administrative audit is disabled for this administrator.")
         queryset = AuditLog.objects.select_related("actor").order_by("-created_at")
         actor = self.request.user
         if actor.role != Role.SUPER_ADMIN:
@@ -1206,3 +1349,161 @@ class AuditLogListView(mixins.ListModelMixin, viewsets.GenericViewSet):
             ).values("email")
             queryset = queryset.filter(target__in=matching_emails).distinct()
         return queryset
+
+
+
+def _resolve_flag_image(request, file_field="flag_image"):
+    """Collect a flag picture from the request in any of three ways.
+
+    ``<file_field>`` multipart upload, ``flag_path`` (a picture file on this
+    machine, e.g. a fresh download) or ``flag_url`` (an http(s) image link).
+    Returns ``(content_file, error_response)`` -- exactly one is truthy.
+    """
+    from django.core.files.base import ContentFile
+    from pathlib import Path as FsPath
+
+    allowed_ext = (".png", ".jpg", ".jpeg", ".webp", ".svg")
+
+    def _validate_bytes(raw, name):
+        from PIL import Image
+
+        try:
+            Image.open(io.BytesIO(raw)).verify()
+        except Exception:
+            return None, Response(
+                {"success": False, "error": "That file is not a readable picture."},
+                status=400,
+            )
+        return ContentFile(raw, name=name), None
+
+    uploaded = request.FILES.get(file_field)
+    if uploaded is not None:
+        if uploaded.content_type not in ALLOWED_FLAG_IMAGE_TYPES:
+            return None, Response(
+                {"success": False, "error": "The flag must be a PNG, JPEG, WebP or SVG picture."},
+                status=400,
+            )
+        if uploaded.size > MAX_FLAG_IMAGE_BYTES:
+            return None, Response({"success": False, "error": "Keep the flag picture under 2 MB."}, status=400)
+        return _validate_bytes(uploaded.read(), uploaded.name or "flag.png")
+
+    source_path = str(request.data.get("flag_path") or "").strip()
+    if source_path:
+        candidate = FsPath(source_path)
+        if not candidate.exists():
+            return None, Response({"success": False, "error": f"File not found on the server machine: {source_path}"}, status=400)
+        if candidate.suffix.lower() not in allowed_ext:
+            return None, Response({"success": False, "error": "The flag must be a .png, .jpg, .jpeg, .webp or .svg file."}, status=400)
+        if candidate.stat().st_size > MAX_FLAG_IMAGE_BYTES:
+            return None, Response({"success": False, "error": "Keep the flag picture under 2 MB."}, status=400)
+        return _validate_bytes(candidate.read_bytes(), candidate.name)
+
+    source_url = str(request.data.get("flag_url") or "").strip()
+    if source_url:
+        if not source_url.lower().startswith(("http://", "https://")):
+            return None, Response({"success": False, "error": "flag_url must be an http(s) link."}, status=400)
+        try:
+            req_obj = urllib.request.Request(source_url, headers={"User-Agent": "GreenPath/1.0"})
+            with urllib.request.urlopen(req_obj, timeout=15) as resp:
+                raw = resp.read(MAX_FLAG_IMAGE_BYTES + 1)
+                if len(raw) > MAX_FLAG_IMAGE_BYTES:
+                    return None, Response({"success": False, "error": "Keep the flag picture under 2 MB."}, status=400)
+                name = FsPath(urlparse(source_url).path).name or "flag.png"
+        except Exception:
+            return None, Response({"success": False, "error": "The flag picture could not be downloaded from that link."}, status=400)
+        return _validate_bytes(raw, name)
+
+    return None, Response(
+        {"success": False, "error": "Attach the picture (flag_image), a local file path (flag_path) or an image link (flag_url)."},
+        status=400,
+    )
+
+
+class LocationFlagView(_AuditMixin, APIView):
+    """PATCH /superadmin/locations/<pk>/flag/ -- set a location's flag picture.
+
+    Sources: multipart ``flag_image``, a local ``flag_path`` (e.g. a fresh
+    download on this machine) or an http(s) ``flag_url``. Super Admin and
+    Top User Admin only; zones and weredas inherit the nearest ancestor
+    region's picture. Every change is audited.
+    """
+
+    def patch(self, request, pk=None):
+        from registrations.models import AdministrativeLocation
+        from registrations.services import region_flag_image_for
+
+        if request.user.role not in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+            return Response(
+                {"success": False, "error": "Only the Super Admin or a Top User Admin can edit location flags."},
+                status=403,
+            )
+        location = AdministrativeLocation.objects.filter(pk=pk, active=True).first()
+        if location is None:
+            return Response({"success": False, "error": "Administrative location not found."}, status=404)
+        # Flags live on regions (and charter cities) only: zones and weredas
+        # always inherit their region's picture, so they are never asked for one.
+        if location.level in ("ZONE", "WOREDA"):
+            return Response(
+                {"success": False, "error": "Zones and weredas inherit their region's flag automatically — set the flag on the region instead."},
+                status=400,
+            )
+        content, error = _resolve_flag_image(request)
+        if error is not None:
+            return error
+        previous_image = location.flag_image.name if location.flag_image else ""
+        location.flag_image.save(content.name, content, save=False)
+        location.save(update_fields=["flag_image"])
+        self._audit(
+            "location_flag_image_updated",
+            str(location.pk),
+            json.dumps({
+                "location": location.name,
+                "previous": previous_image,
+                "image": location.flag_image.name,
+            }, sort_keys=True),
+        )
+        return Response({
+            "success": True,
+            "id": str(location.pk),
+            "name": location.name,
+            "level": location.level,
+            "flag_image": request.build_absolute_uri(location.flag_image.url),
+            "inherited_flag_image": region_flag_image_for(location),
+        })
+
+
+class NationalFlagView(_AuditMixin, APIView):
+    """PATCH /superadmin/national-flag/ -- upload the national flag picture.
+
+    Sources: multipart ``national_flag``, a local ``flag_path`` or an http(s)
+    ``flag_url``. Super Admin and Top User Admin only; the picture appears on
+    nationwide dashboards and as the federal flag for Addis Ababa
+    administrators. Every change is audited.
+    """
+
+    def patch(self, request):
+        from registrations.services import national_flag_image_url
+        from users.models import PlatformSettings
+
+        if request.user.role not in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+            return Response(
+                {"success": False, "error": "Only the Super Admin or a Top User Admin can edit the national flag."},
+                status=403,
+            )
+        content, error = _resolve_flag_image(request, file_field="national_flag")
+        if error is not None:
+            return error
+        settings_row = PlatformSettings.load()
+        previous = settings_row.national_flag.name if settings_row.national_flag else ""
+        settings_row.national_flag.save(content.name, content, save=False)
+        settings_row.save(update_fields=["national_flag"])
+        self._audit(
+            "national_flag_updated",
+            "platform_settings",
+            json.dumps({"previous": previous, "image": settings_row.national_flag.name}, sort_keys=True),
+        )
+        return Response({
+            "success": True,
+            "national_flag": request.build_absolute_uri(settings_row.national_flag.url),
+            "current": national_flag_image_url(),
+        })

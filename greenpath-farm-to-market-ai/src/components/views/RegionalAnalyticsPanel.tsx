@@ -220,11 +220,11 @@ export const RegionalAnalyticsPanel: React.FC = () => {
                     <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="Farmers" stackId="a" fill="#15803D" />
-                    <Bar dataKey="Wholesalers" stackId="a" fill="#0ea5e9" />
-                    <Bar dataKey="Retailers" stackId="a" fill="#8b5cf6" />
-                    <Bar dataKey="Drivers" stackId="a" fill="#f59e0b" />
-                    <Bar dataKey="Staff" stackId="a" fill="#64748b" />
+                    <Bar dataKey="Farmers" stackId="a" fill="#15803D"  isAnimationActive={false} />
+                    <Bar dataKey="Wholesalers" stackId="a" fill="#0ea5e9"  isAnimationActive={false} />
+                    <Bar dataKey="Retailers" stackId="a" fill="#8b5cf6"  isAnimationActive={false} />
+                    <Bar dataKey="Drivers" stackId="a" fill="#f59e0b"  isAnimationActive={false} />
+                    <Bar dataKey="Staff" stackId="a" fill="#64748b"  isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -240,7 +240,7 @@ export const RegionalAnalyticsPanel: React.FC = () => {
                       <XAxis dataKey="period" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                       <Tooltip />
-                      <Line type="monotone" dataKey="registrations" stroke="#15803D" strokeWidth={2} />
+                      <Line type="monotone" dataKey="registrations" stroke="#15803D" strokeWidth={2}  isAnimationActive={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>

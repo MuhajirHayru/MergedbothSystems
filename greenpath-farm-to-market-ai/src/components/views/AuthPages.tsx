@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../../services/apiClient';
+import { formatApiError } from '../../lib/apiErrors';
 import { useApp } from '../../context/AppContext';
 import { UserRole, RegistrationApplication } from '../../types';
 import {
@@ -108,7 +109,10 @@ export const LoginPage: React.FC = () => {
         driver: 'driver_dashboard',
         financial_manager: 'financial_dashboard',
         user_admin: 'user_admin_dashboard',
-        top_user_admin: 'top_user_admin_dashboard',
+        regional_admin: 'regional_hierarchy',
+        zonal_admin: 'regional_hierarchy',
+        wereda_admin: 'regional_hierarchy',
+        top_user_admin: 'top_user_dashboard',
         super_admin: 'super_admin_dashboard',
         logistics_manager: 'logistics_dashboard',
         customer_support: 'support_management',
@@ -116,7 +120,14 @@ export const LoginPage: React.FC = () => {
       setActiveView(viewMap[role] || 'marketplace');
     } catch (err: any) {
       recordFailedLogin();
-      setErrorMsg(err?.response?.data?.error || err?.message || 'Invalid credentials. Please verify your email/phone and password.');
+      // The API nests DRF field errors under `error` (e.g. non_field_errors).
+      // Assigning that object to JSX crashed the whole sign-in screen.
+      setErrorMsg(
+        formatApiError(
+          err,
+          'Invalid credentials. Please verify your email/phone and password.',
+        ),
+      );
     } finally {
       setIsLoading(false);
     }

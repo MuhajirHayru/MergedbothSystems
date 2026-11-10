@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/apiClient';
+import { apiClient } from '../../services/apiClient';
+import { formatApiError } from '../../lib/apiErrors';
 import { useTheme } from '../../context/ThemeContext';
 import { Language } from '../../types';
 import {
   User,
-  Building2,
   Lock,
   Bell,
   Globe,
@@ -22,16 +23,13 @@ import {
   Smartphone,
   Eye,
   EyeOff,
+  Wallet,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
   const {
     currentUser,
     updateCurrentUser,
-    bankAccounts,
-    addBankAccount,
-    setPrimaryBankAccount,
-    removeBankAccount,
     language,
     setLanguage,
     platformConfig,
@@ -48,23 +46,116 @@ export const SettingsView: React.FC = () => {
 
   // Profile Form State
   const [name, setName] = useState(currentUser.name);
+  const [bio, setBio] = useState<string>((currentUser as any).bio || '');
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string>((currentUser as any).avatarUrl || '');
   const [legalFullName, setLegalFullName] = useState(currentUser.legalFullName || currentUser.name);
   const [email, setEmail] = useState(currentUser.email);
   const [phone, setPhone] = useState(currentUser.phone);
-  const [businessName, setBusinessName] = useState(currentUser.businessName || '');
-  const [registeredAddress, setRegisteredAddress] = useState(currentUser.registeredAddress || '');
 
   // Add Bank Account Modal / State
-  const [showAddBank, setShowAddBank] = useState(false);
-  const [bankName, setBankName] = useState('Commercial Bank of Ethiopia (CBE)');
-  const [accountHolderName, setAccountHolderName] = useState(currentUser.name);
-  const [accountNumber, setAccountNumber] = useState('');
-  const [accountType, setAccountType] = useState<'Checking' | 'Savings' | 'Business Escrow'>('Checking');
 
   // Password Change State
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Administrative account card (staff roles only): scope, insignia, creatable roles.
+  const STAFF_ROLES_FOR_SETTINGS = ['USER_ADMIN', 'REGIONAL_ADMIN', 'ZONAL_ADMIN', 'WEREDA_ADMIN', 'TOP_USER_ADMIN', 'SUPER_ADMIN'];
+  const isAdminAccount = STAFF_ROLES_FOR_SETTINGS.includes(String(currentUser.role || '').toUpperCase());
+  const [adminScope, setAdminScope] = useState<{ scope: string; flag: string; flagImage: string; locationId: string; canEdit: boolean; creatable: string[] } | null>(null);
+  const [flagFile, setFlagFile] = useState<File | null>(null);
+  const [flagPath, setFlagPath] = useState('');
+  const [flagBusy, setFlagBusy] = useState(false);
+  const [flagError, setFlagError] = useState('');
+  // Bank accounts (payout accounts) — listed, added and removed in Settings.
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [banks, setBanks] = useState<{ code: string; name: string }[]>([]);
+  const [bankForm, setBankForm] = useState({ bank: '', account_holder_name: '', account_number: '', branch: '', account_type: 'checking', nickname: '' });
+  const [bankBusy, setBankBusy] = useState(false);
+  const [bankError, setBankError] = useState('');
+
+  const loadBankAccounts = useCallback(() => {
+    apiClient.get('/payments/bank-accounts/')
+      .then((res: any) => setBankAccounts(res?.data?.accounts || []))
+      .catch(() => setBankAccounts([]));
+  }, []);
+  useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
+  useEffect(() => {
+    apiClient.get('/payments/banks/')
+      .then((res: any) => setBanks(res?.data?.banks || []))
+      .catch(() => setBanks([]));
+  }, []);
+
+  const addBankAccount = async () => {
+    setBankBusy(true); setBankError('');
+    try {
+      await apiClient.post('/payments/bank-accounts/', bankForm);
+      setBankForm({ bank: '', account_holder_name: '', account_number: '', branch: '', account_type: 'checking', nickname: '' });
+      loadBankAccounts();
+      setNotification('Bank account added — it will be verified before payouts use it.');
+    } catch (err: any) {
+      setBankError(formatApiError(err, 'The bank account could not be added.'));
+    } finally {
+      setBankBusy(false);
+    }
+  };
+
+  const removeBankAccount = async (id: string) => {
+    try {
+      await apiClient.delete(`/payments/bank-accounts/${id}/`);
+      loadBankAccounts();
+      setNotification('Bank account removed.');
+    } catch (err: any) {
+      setBankError(formatApiError(err, 'The bank account could not be removed.'));
+    }
+  };
+
+  const loadAdminScope = useCallback(() => {
+    if (!isAdminAccount) return;
+    let alive = true;
+    apiClient.get('/superadmin/accounts/creation-options/')
+      .then((res: any) => {
+        if (!alive) return;
+        setAdminScope({
+          scope: res?.data?.current_scope || '',
+          flag: res?.data?.current_flag || '',
+          flagImage: res?.data?.current_flag_image || '',
+          locationId: res?.data?.scope_location_id || '',
+          canEdit: Boolean(res?.data?.can_set_location_flag),
+          creatable: (res?.data?.creatable_roles || []) as string[],
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [isAdminAccount]);
+  useEffect(() => { loadAdminScope(); }, [loadAdminScope]);
+
+  const saveFlagPicture = async () => {
+    if (!flagFile && !flagPath.trim()) { setFlagError('Browse a picture or paste a file path / image link first.'); return; }
+    setFlagBusy(true); setFlagError('');
+    try {
+      const endpoint = adminScope?.locationId
+        ? `/superadmin/locations/${adminScope.locationId}/flag/`
+        : '/superadmin/national-flag/';
+      if (flagFile) {
+        const form = new FormData();
+        form.append(adminScope?.locationId ? 'flag_image' : 'national_flag', flagFile);
+        await apiClient.patch(endpoint, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        const value = flagPath.trim();
+        const body = value.toLowerCase().startsWith('http') ? { flag_url: value } : { flag_path: value };
+        await apiClient.patch(endpoint, body);
+      }
+      setFlagFile(null); setFlagPath('');
+      loadAdminScope();
+      setNotification('Flag picture updated.');
+    } catch (err: any) {
+      setFlagError(formatApiError(err, 'The flag picture could not be set — check the file, path or link.'));
+    } finally {
+      setFlagBusy(false);
+    }
+  };
 
   // Notification toggles
   const [notifOrders, setNotifOrders] = useState(() => localStorage.getItem('gp_pref_notif_orders') !== '0');
@@ -90,14 +181,11 @@ export const SettingsView: React.FC = () => {
       const payload: Record<string, unknown> = {
         full_name: legalFullName || name,
         phone,
+        bio,
       };
       if (email && email !== currentUser.email) payload.email = email;
-      if ((businessName || '') !== (currentUser.businessName || '')) {
-        payload.business_name = businessName;
-      }
-      if ((registeredAddress || '') !== (currentUser.registeredAddress || '')) {
-        payload.business_address = registeredAddress;
-      }
+
+
       const res = await api.auth.updateProfile(payload);
       if (res?.data?.user) updateCurrentUser(res.data.user);
       setNotification?.('Profile updated.');
@@ -114,22 +202,6 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleAddBankAccount = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!accountNumber) return;
-    const masked = `•••• •••• ${accountNumber.slice(-4)}`;
-    addBankAccount({
-      bankName,
-      accountHolderName,
-      accountNumber,
-      maskedAccountNumber: masked,
-      accountType,
-      isPrimary: bankAccounts.length === 0,
-    });
-    setShowAddBank(false);
-    setAccountNumber('');
-  };
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {/* Header */}
@@ -138,7 +210,7 @@ export const SettingsView: React.FC = () => {
           Account Settings & Preferences
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Manage your verified profile details, settlement bank accounts, security keys, and display theme.
+          Manage your verified profile details, security settings, and display theme.
         </p>
       </div>
 
@@ -147,7 +219,8 @@ export const SettingsView: React.FC = () => {
         <div className="md:col-span-4 lg:col-span-3 space-y-1 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           {[
             { id: 'profile', label: 'Profile Information', icon: User },
-            { id: 'bank_accounts', label: 'Bank Accounts', icon: Building2 },
+            { id: 'bank_accounts', label: 'Bank Accounts', icon: Wallet },
+
             { id: 'security', label: 'Security & Sessions', icon: Lock },
             { id: 'notifications', label: 'Notification Preferences', icon: Bell },
             { id: 'language', label: 'Language & Locale', icon: Globe },
@@ -225,24 +298,55 @@ export const SettingsView: React.FC = () => {
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block font-semibold mb-1">Associated Business / Farm Enterprise</label>
-                  <input
-                    type="text"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
+                  <label className="block font-semibold mb-1">Profile picture</label>
+                  <div className="flex items-center gap-3">
+                    {photoPreview ? (
+                      <img src={photoPreview} alt="" className="w-14 h-14 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-bold flex items-center justify-center">{(name || '?').slice(0, 2).toUpperCase()}</div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setPhotoBusy(true);
+                        try {
+                          const form = new FormData();
+                          form.append('profile_photo', file);
+                          const res: any = await apiClient.post('/auth/profile/photo/', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+                          const url = res?.data?.user?.profile_photo;
+                          setPhotoPreview(url ? `http://127.0.0.1:8000${url.startsWith('/') ? url : '/' + url}` : photoPreview);
+                          setNotification('Profile picture updated.');
+                        } catch (err: any) {
+                          setNotification(formatApiError(err, 'The profile picture could not be uploaded.'));
+                        } finally {
+                          setPhotoBusy(false);
+                          e.target.value = '';
+                        }
+                      }}
+                      disabled={photoBusy}
+                      className="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-[#15803D] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
+                    />
+                    {photoBusy && <span className="text-[11px] text-slate-400">Uploading…</span>}
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Shown beside your messages when you chat with buyers and sellers.</p>
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block font-semibold mb-1">Registered Administrative Address</label>
+                  <label className="block font-semibold mb-1">Bio</label>
                   <textarea
-                    value={registeredAddress}
-                    onChange={(e) => setRegisteredAddress(e.target.value)}
-                    rows={2}
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    rows={3}
+                    maxLength={280}
+                    placeholder="A short introduction buyers and sellers see when you chat."
                     className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                   />
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">{bio.length}/280 · visible in your chat identity.</p>
                 </div>
+
               </div>
 
               <div className="flex justify-end pt-2">
@@ -257,163 +361,87 @@ export const SettingsView: React.FC = () => {
             </form>
           )}
 
-          {/* TAB 2: Bank Accounts Management (Masked, Verified, Primary) */}
           {activeTab === 'bank_accounts' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                    Disbursement & Escrow Bank Accounts
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Accounts authorized for direct payout withdrawal in Ethiopian Birr (ETB).
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setShowAddBank(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold rounded-lg shadow-xs"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Bank Account</span>
-                </button>
+            <div className="space-y-4 text-xs">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 mb-1">Bank Accounts</h3>
+                <p className="text-slate-500 dark:text-slate-400">
+                  Payout accounts for salary invoices and marketplace settlements. Account numbers are stored
+                  encrypted and shown masked; each account is verified before payouts use it.
+                </p>
               </div>
 
-              {/* Bank Accounts List */}
-              <div className="space-y-3">
-                {bankAccounts.map((b) => (
-                  <div
-                    key={b.id}
-                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
+              <div className="space-y-2">
+                {bankAccounts.length === 0 && (
+                  <div className="p-6 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-400">
+                    No bank accounts registered yet.
+                  </div>
+                )}
+                {bankAccounts.map((acc: any) => (
+                  <div key={acc.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                          {b.bankName}
-                        </span>
-                        {b.isPrimary && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                            Primary Account
-                          </span>
-                        )}
-                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                          {b.accountType}
-                        </span>
+                      <div className="font-bold text-slate-800 dark:text-slate-100">
+                        {acc.bank}
+                        {acc.is_default && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">DEFAULT</span>}
                       </div>
-                      <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                        Holder: {b.accountHolderName}
-                      </div>
-                      <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                        {b.maskedAccountNumber}
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {acc.account_holder_name} · <span className="font-mono">{acc.account_number_masked}</span>
+                        {acc.branch ? ` · ${acc.branch}` : ''}
+                        <span className="ml-2 capitalize">{String(acc.status || '').toLowerCase().replace(/_/g, ' ')}</span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      {!b.isPrimary && (
-                        <button
-                          onClick={() => setPrimaryBankAccount(b.id)}
-                          className="text-xs font-semibold text-[#15803D] hover:underline"
-                        >
-                          Make Primary
-                        </button>
-                      )}
-                      <button
-                        onClick={() => removeBankAccount(b.id)}
-                        className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg"
-                        title="Remove bank account"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void removeBankAccount(acc.id)}
+                      className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 dark:border-red-900 dark:text-red-300 font-semibold hover:bg-red-50 dark:hover:bg-red-950/40"
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
               </div>
 
-              {/* Add Bank Modal */}
-              {showAddBank && (
-                <form
-                  onSubmit={handleAddBankAccount}
-                  className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3 text-xs"
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 space-y-3">
+                <div className="font-bold text-slate-800 dark:text-slate-100">Add a bank account</div>
+                {bankError && <div role="alert" className="text-[11px] text-rose-700 dark:text-rose-300">{bankError}</div>}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Bank
+                    <select
+                      value={bankForm.bank}
+                      onChange={(e) => setBankForm({ ...bankForm, bank: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="">Choose a bank…</option>
+                      {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Account holder name
+                    <input value={bankForm.account_holder_name} onChange={(e) => setBankForm({ ...bankForm, account_holder_name: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100" />
+                  </label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Account number
+                    <input value={bankForm.account_number} onChange={(e) => setBankForm({ ...bankForm, account_number: e.target.value })} inputMode="numeric" className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-2 text-xs font-mono text-slate-900 dark:text-slate-100" />
+                  </label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Branch (optional)
+                    <input value={bankForm.branch} onChange={(e) => setBankForm({ ...bankForm, branch: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100" />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  disabled={bankBusy || !bankForm.bank || !bankForm.account_holder_name || !bankForm.account_number}
+                  onClick={() => void addBankAccount()}
+                  className="rounded-lg bg-[#15803D] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
                 >
-                  <div className="font-bold text-emerald-900 dark:text-emerald-200">
-                    Add Ethiopian Commercial Bank Account
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-semibold mb-1">Financial Institution</label>
-                      <select
-                        value={bankName}
-                        onChange={(e) => setBankName(e.target.value)}
-                        className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                      >
-                        <option value="Commercial Bank of Ethiopia (CBE)">Commercial Bank of Ethiopia (CBE)</option>
-                        <option value="Awash International Bank">Awash International Bank</option>
-                        <option value="Bank of Abyssinia">Bank of Abyssinia</option>
-                        <option value="Dashen Bank">Dashen Bank</option>
-                        <option value="Cooperative Bank of Oromia">Cooperative Bank of Oromia</option>
-                        <option value="Telebirr Wallet SuperApp">Telebirr Wallet SuperApp</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold mb-1">Account Holder Full Legal Name</label>
-                      <input
-                        type="text"
-                        value={accountHolderName}
-                        onChange={(e) => setAccountHolderName(e.target.value)}
-                        required
-                        className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold mb-1">Account Number (Full)</label>
-                      <input
-                        type="text"
-                        value={accountNumber}
-                        onChange={(e) => setAccountNumber(e.target.value)}
-                        placeholder="1000..."
-                        required
-                        className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold mb-1">Account Classification</label>
-                      <select
-                        value={accountType}
-                        onChange={(e) => setAccountType(e.target.value as any)}
-                        className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                      >
-                        <option value="Checking">Checking Account</option>
-                        <option value="Savings">Savings Account</option>
-                        <option value="Business Escrow">Business Escrow</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddBank(false)}
-                      className="px-3 py-1.5 border border-slate-300 rounded-md"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 bg-[#15803D] hover:bg-[#166534] text-white font-bold rounded-md"
-                    >
-                      Verify & Add Account
-                    </button>
-                  </div>
-                </form>
-              )}
+                  {bankBusy ? 'Adding…' : 'Add bank account'}
+                </button>
+              </div>
             </div>
           )}
 
-          {/* TAB 3: Security & Lockout awareness */}
+          {/* TAB 2: Bank Accounts Management (Masked, Verified, Primary) */}
           {activeTab === 'security' && (
             <div className="space-y-6 text-xs">
               <div>
@@ -424,6 +452,64 @@ export const SettingsView: React.FC = () => {
                   Account protected under GreenPath 3-failed-attempt lockout policy.
                 </p>
               </div>
+
+              {isAdminAccount && (
+                <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 space-y-3">
+                  <div className="flex items-center gap-3">
+                    {adminScope?.flagImage ? (
+                      <img src={adminScope.flagImage} alt="Regional flag" className="h-16 w-24 rounded-lg object-cover shadow-md ring-1 ring-emerald-200 dark:ring-emerald-800" />
+                    ) : adminScope?.flag ? (
+                      <span aria-hidden="true" className="text-3xl leading-none">{adminScope.flag}</span>
+                    ) : (
+                      <Shield className="w-5 h-5 text-emerald-600" />
+                    )}
+                    <div>
+                      <div className="font-bold text-slate-800 dark:text-slate-200">Administrative account</div>
+                      <div className="text-xs text-slate-600 dark:text-slate-300">
+                        {currentUser.name} · {String(currentUser.role || '').replace(/_/g, ' ')}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-600 dark:text-slate-300">
+                    Geographic scope: <strong>{adminScope?.scope || 'Nationwide'}</strong>
+                    {adminScope && adminScope.creatable.length > 0 && (
+                      <> · can create: {adminScope.creatable.map((r) => r.replace(/_/g, ' ').toLowerCase()).join(', ')}</>
+                    )}
+                  </div>
+                  {adminScope?.canEdit && (
+                    <div className="border-t border-emerald-200/70 dark:border-emerald-900/70 pt-3 space-y-2">
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                        Flag picture {adminScope.locationId ? `for ${adminScope.scope}` : '(national flag — shown on nationwide dashboards; Addis Ababa inherits it as the federal flag)'}
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        onChange={(event) => { setFlagFile(event.target.files?.[0] || null); setFlagPath(''); setFlagError(''); }}
+                        className="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-[#15803D] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
+                      />
+                      <input
+                        value={flagPath}
+                        onChange={(event) => { setFlagPath(event.target.value); if (event.target.value) setFlagFile(null); setFlagError(''); }}
+                        placeholder="…or paste a file path (C:\Users\…\flag.png) or an image link"
+                        aria-label="Flag picture file path or image link"
+                        className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      />
+                      {flagError && <div role="alert" className="text-[11px] text-rose-700 dark:text-rose-300">{flagError}</div>}
+                      <button
+                        type="button"
+                        disabled={flagBusy || (!flagFile && !flagPath.trim())}
+                        onClick={() => void saveFlagPicture()}
+                        className="rounded-lg bg-[#15803D] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        {flagBusy ? 'Saving…' : 'Save flag picture'}
+                      </button>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        PNG, JPEG, WebP or SVG up to 2 MB. A pasted path can point at a file you just downloaded into your Downloads folder.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2">
                 <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">

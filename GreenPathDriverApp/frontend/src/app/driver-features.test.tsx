@@ -178,7 +178,7 @@ describe("Driver wallet", () => {
         "Open DriverApp from your Marketplace driver account to see your earnings and payout status.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Payout amount/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Amount \(ETB\)/)).not.toBeInTheDocument();
   });
 
   it("shows the approved Marketplace balance and the payout request form", async () => {
@@ -248,10 +248,11 @@ describe("Driver wallet", () => {
 
     render(<DriverWallet />);
 
-    expect((await screen.findAllByText("1250.00 ETB")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("1,250.00 ETB")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/DRIVER-FEE-7/)).length).toBeGreaterThan(0);
     expect(await screen.findByText("Commercial Bank 1234")).toBeInTheDocument();
-    expect(await screen.findByLabelText(/Payout amount/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw funds/ }));
+    expect(await screen.findByLabelText(/Amount \(ETB\)/)).toBeInTheDocument();
   });
 
   it("requests a payout with the amount and destination", async () => {
@@ -301,15 +302,20 @@ describe("Driver wallet", () => {
 
     render(<DriverWallet />);
 
-    fireEvent.change(await screen.findByLabelText(/Payout amount/), {
+    // Wait for the linked wallet to load before opening the withdrawal drawer.
+    await screen.findAllByText("1,250.00 ETB");
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw funds/ }));
+    fireEvent.change(await screen.findByLabelText(/Amount \(ETB\)/), {
       target: { value: "250.00" },
     });
     await screen.findByRole("option", { name: /Commercial Bank of Ethiopia/ });
-    fireEvent.change(screen.getByLabelText("Payout destination"), {
+    fireEvent.change(screen.getByLabelText("Payout account"), {
       target: { value: "account-1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Request withdrawal/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw funds/ }));
 
+    // The drawer's submit opens the confirmation dialog, whose button submits the payout.
+    fireEvent.click(screen.getByRole("button", { name: "Review withdrawal" }));
     fireEvent.click(await screen.findByRole("button", { name: "Submit request" }));
 
     expect(await screen.findByText(/WDR-250/)).toBeInTheDocument();

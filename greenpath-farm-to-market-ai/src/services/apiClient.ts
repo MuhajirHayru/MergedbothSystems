@@ -99,6 +99,10 @@ const handleRefresh = (client: typeof apiClient) =>
       } catch (e) {
         localStorage.removeItem('greenpath_auth_token');
         localStorage.removeItem('greenpath_refresh_token');
+        localStorage.removeItem('greenpath_registration_token');
+        // Tell the app shell that the session is gone. Without this the UI kept
+        // rendering an authenticated layout while every request returned 401.
+        window.dispatchEvent(new CustomEvent('greenpath:session-expired'));
         return Promise.reject(error);
       }
     }
@@ -148,6 +152,7 @@ export const api = {
     confirmQuality: (id: string, data?: any) => apiClient.post(`/orders/${id}/confirm-quality/`, data || {}),
     dispute: (id: string, data?: any) => apiClient.post(`/orders/${id}/dispute/`, data || {}),
     release: (id: string, data?: any) => apiClient.post(`/orders/${id}/release/`, data || {}),
+    receipt: (id: string) => apiClient.get(`/orders/${id}/receipt/`),
     resolveDispute: (id: string, data?: any) => apiClient.post(`/orders/${id}/resolve-dispute/`, data || {}),
     discloseContact: (id: string, data?: any) => apiClient.post(`/orders/${id}/disclose-contact/`, data || {}),
     shipmentDetails: (id: string) => apiClient.get(`/orders/${id}/shipment-details/`),
@@ -183,7 +188,7 @@ export const api = {
     bankAccountFullDetails: (id: string) => apiClient.get(`/wallet/bank-accounts/${id}/full-details/`),
     requireBankAccountReview: (id: string, data: { notes: string }) =>
       apiClient.post(`/wallet/bank-accounts/${id}/require-review/`, data),
-    createPayout: (data: any) => apiClient.post('/wallet/payouts/', data),
+    createPayout: (data: any) => apiClient.post('/wallet/payouts/', data, { headers: { 'Idempotency-Key': `payout-${Date.now()}-${Math.random().toString(36).slice(2)}` } }),
     reviewPayout: (id: string, data: any) => apiClient.post(`/wallet/payouts/${id}/review/`, data),
     createFunding: (data: any) => apiClient.post('/wallet/funding/', data),
     chapaInitialize: (data: any) => apiClient.post('/wallet/funding/chapa/', data),
@@ -302,8 +307,10 @@ export const api = {
   },
   adminOverview: () => apiClient.get('/auth/admin-overview/'),
   ordersOversight: (params?: Record<string, unknown>) => apiClient.get('/superadmin/orders-oversight/', { params }),
-  walletsOversight: () => apiClient.get('/superadmin/wallets-oversight/'),
-  broadcast: (message: string) => apiClient.post('/superadmin/broadcast/', { message }),
+  walletsOversight: (params?: Record<string, unknown>) => apiClient.get('/superadmin/wallets-oversight/', { params }),
+  broadcast: (message: string, expiresHours?: number) => apiClient.post('/superadmin/broadcast/', { message, expires_hours: expiresHours ?? null }),
+  broadcastsHistory: (params?: Record<string, unknown>) => apiClient.get('/superadmin/broadcasts/', { params }),
+  endBroadcast: (id: string) => apiClient.post(`/superadmin/broadcasts/${id}/end/`),
   healthDetailed: () => apiClient.get('/superadmin/health-detailed/'),
   auditCenter: {
     summary: (days: number) => apiClient.get('/superadmin/audit/summary/', { params: { days } }),
@@ -331,6 +338,8 @@ export const api = {
     ledger: (params?: any) => apiClient.get('/payments/financial/ledger/', { params }),
     summary: () => apiClient.get('/payments/financial/summary/'),
     report: (params?: any) => apiClient.get('/payments/financial/report/', { params }),
+    // One source-backed statement: revenue, customer funds, liabilities.
+    statement: (params?: any) => apiClient.get('/payments/financial/statement/', { params }),
     deliveryPricing: () => apiClient.get('/payments/financial/delivery-pricing/'),
     createDeliveryPricing: (data: any) => apiClient.post('/payments/financial/delivery-pricing/', data),
     deliveryPricingAction: (id: string, data: any) => apiClient.post(`/payments/financial/delivery-pricing/${id}/action/`, data),
@@ -339,6 +348,20 @@ export const api = {
     refundAction: (id: string, data: any) => apiClient.post(`/payments/financial/refunds/${id}/action/`, data),
     reconciliation: () => apiClient.get('/payments/financial/reconciliation/'),
     regionalReport: (params?: any) => apiClient.get('/payments/financial/regional-report/', { params }),
+    // Super Admin master switches + default pricing for each revenue source.
+    revenueSources: () => apiClient.get('/payments/financial/revenue-sources/'),
+    updateRevenueSource: (source: string, data: any) =>
+      apiClient.put(`/payments/financial/revenue-sources/${source}/`, data),
+    // Revenue methods: payer responsibility, charge records and settlements.
+    revenueMethods: () => apiClient.get('/payments/financial/revenue-methods/'),
+    createRevenueMethod: (data: any) => apiClient.post('/payments/financial/revenue-methods/', data),
+    revenueMethodAction: (id: string, data: any) => apiClient.post(`/payments/financial/revenue-methods/${id}/action/`, data),
+    revenueCharges: (params?: any) => apiClient.get('/payments/financial/revenue-charges/', { params }),
+    revenueCharge: (id: string) => apiClient.get(`/payments/financial/revenue-charges/${id}/`),
+    freightSettlements: () => apiClient.get('/payments/financial/freight-settlements/'),
+    advertisingPackages: () => apiClient.get('/payments/financial/advertising-packages/'),
+    createAdvertisingPackage: (data: any) => apiClient.post('/payments/financial/advertising-packages/', data),
+    purchaseAdvertisingPackage: (id: string, data: any) => apiClient.post(`/payments/financial/advertising-packages/${id}/purchase/`, data),
   },
   auth: {
     login: (data: { email: string; password: string }) => apiClient.post('/auth/login/', data),

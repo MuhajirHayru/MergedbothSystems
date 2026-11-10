@@ -16,12 +16,16 @@ from rest_framework.views import APIView
 
 from chat.models import ChatChannel, Message
 from products.models import Product, ProductStatus
-from registrations.services import users_visible_to_admin
+from registrations.models import AdministrativeLocation
+from registrations.services import admin_dashboard_feature_enabled, location_descendant_ids, users_visible_to_admin
 from users.audit import log_action
 from users.models import AuditLog, Role
 from users.permissions import IsAuthenticatedRole
 
-OVERSIGHT_ROLES = (Role.SUPER_ADMIN, Role.USER_ADMIN, Role.TOP_USER_ADMIN)
+OVERSIGHT_ROLES = (
+    Role.SUPER_ADMIN, Role.TOP_USER_ADMIN, Role.REGIONAL_ADMIN,
+    Role.ZONAL_ADMIN, Role.WEREDA_ADMIN, Role.USER_ADMIN,
+)
 
 
 class AdminProductVisibilityView(APIView):
@@ -40,6 +44,8 @@ class AdminProductVisibilityView(APIView):
         from django.utils import timezone as dj_tz
 
         user = request.user
+        if not admin_dashboard_feature_enabled(user, "product_oversight"):
+            return Response({"success": False, "error": "Product oversight is disabled for this administrator."}, status=403)
         product_id = request.data.get("product_id")
         new_status = request.data.get("status")
         reason = (request.data.get("reason") or "").strip()
@@ -86,6 +92,8 @@ class AdminProductVisibilityView(APIView):
 
     def get(self, request):
         user = request.user
+        if not admin_dashboard_feature_enabled(user, "product_oversight"):
+            return Response({"success": False, "error": "Product oversight is disabled for this administrator."}, status=403)
         qs = Product.objects.select_related("owner").order_by("-created_at")
         scoped = False
         if user.role != Role.SUPER_ADMIN:
@@ -100,10 +108,19 @@ class AdminProductVisibilityView(APIView):
         if params.get("status"):
             qs = qs.filter(status=params["status"])
         if params.get("region"):
-            qs = qs.filter(owner__administrative_scope__location_id=params["region"])
+            location = AdministrativeLocation.objects.filter(pk=params["region"], active=True).first()
+            if location is None:
+                return Response({"success": False, "error": "Choose an active administrative location."}, status=400)
+            qs = qs.filter(owner__registration__location_id__in=location_descendant_ids(location))
         search = (params.get("search") or "").strip()
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(owner__full_name__icontains=search))
+        total = qs.count()
+        try:
+            page = max(1, int(params.get("page", 1)))
+            page_size = min(100, max(1, int(params.get("page_size", 50))))
+        except (TypeError, ValueError):
+            return Response({"success": False, "error": "page and page_size must be positive integers."}, status=400)
         rows = [
             {
                 "id": str(p.pk),
@@ -117,12 +134,18 @@ class AdminProductVisibilityView(APIView):
                 "unit": p.unit_of_measure,
                 "listed_at": p.created_at.isoformat(),
             }
-            for p in qs[:200]
+            for p in qs[(page - 1) * page_size:page * page_size]
         ]
         return Response({
             "success": True,
             "scope_limited": scoped,
-            "summary": {"total": qs.count()},
+            "summary": {"total": total},
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "pages": (total + page_size - 1) // page_size,
+                "count": total,
+            },
             "products": rows,
         })
 

@@ -3,6 +3,7 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status, views
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,7 +17,7 @@ from .serializers import (
     RejectUserSerializer,
 )
 from registrations.models import UserRegistration
-from registrations.services import users_visible_to_admin
+from registrations.services import admin_dashboard_feature_enabled, users_visible_to_admin
 
 SORTABLE = ("created_at", "-created_at", "full_name", "-full_name")
 
@@ -65,6 +66,8 @@ class PendingUsersView(generics.ListAPIView):
     serializer_class = DirectoryUserSerializer
 
     def get_queryset(self):
+        if not admin_dashboard_feature_enabled(self.request.user, "registration_review"):
+            raise PermissionDenied("Registration review is disabled for this administrator.")
         queryset = users_visible_to_admin(self.request.user, User.objects.all())
         queryset = queryset.filter(status=AccountStatus.PENDING).filter(
             Q(registration__legacy_registration=True)
@@ -80,14 +83,20 @@ class AllUsersView(generics.ListAPIView):
     serializer_class = DirectoryUserSerializer
 
     def get_queryset(self):
-        queryset = users_visible_to_admin(self.request.user, User.objects.all())
+        if not admin_dashboard_feature_enabled(self.request.user, "user_management"):
+            raise PermissionDenied("User management is disabled for this administrator.")
+        queryset = users_visible_to_admin(self.request.user, User.objects.all()).prefetch_related(
+            "registration__documents"
+        )
         return _apply_filters(queryset, self.request.query_params).distinct()
 
 
 class _UserActionView(APIView):
     permission_classes = [IsUserAdmin]
 
-    def get_user(self, pk):
+    def get_user(self, pk, feature="user_management"):
+        if not admin_dashboard_feature_enabled(self.request.user, feature):
+            raise PermissionDenied("This user administration feature is disabled for this administrator.")
         queryset = users_visible_to_admin(self.request.user, User.objects.all())
         return queryset.filter(pk=pk).first()
 
@@ -97,7 +106,7 @@ class ApproveUserView(_UserActionView):
     """POST /api/v1/admin/users/{id}/approve/ (FR-UA-02, UC-05)."""
 
     def post(self, request, pk):
-        user = self.get_user(pk)
+        user = self.get_user(pk, "registration_review")
         if user is None:
             return Response({"success": False, "error": "User not found."}, status=404)
         if user.status == AccountStatus.APPROVED:
@@ -133,7 +142,7 @@ class RejectUserView(_UserActionView):
     """POST /api/v1/admin/users/{id}/reject/ with an optional reason (FR-UA-02)."""
 
     def post(self, request, pk):
-        user = self.get_user(pk)
+        user = self.get_user(pk, "registration_review")
         if user is None:
             return Response({"success": False, "error": "User not found."}, status=404)
         if user.status == AccountStatus.REJECTED:
@@ -223,6 +232,8 @@ class BroadcastMessageView(APIView):
     permission_classes = [IsUserAdmin]
 
     def post(self, request):
+        if not admin_dashboard_feature_enabled(request.user, "user_management"):
+            raise PermissionDenied("User management is disabled for this administrator.")
         message = (request.data.get("message") or "").strip()
         if not message:
             return Response(

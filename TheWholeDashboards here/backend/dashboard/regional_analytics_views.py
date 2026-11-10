@@ -5,6 +5,8 @@ from rest_framework.views import APIView
 
 from users.permissions import IsAuthenticatedRole
 from users.models import Role
+from registrations.models import AdministrativeLocation
+from registrations.services import admin_can_access_location, admin_dashboard_feature_enabled
 
 from .regional_analytics import admin_activity_report, regional_drilldown, regional_overview
 
@@ -25,7 +27,9 @@ class RegionalAnalyticsView(APIView):
         return [IsAuthenticatedRole(ANALYTICS_ROLES)]
 
     def get(self, request):
-        return Response({"success": True, **regional_overview()})
+        if not admin_dashboard_feature_enabled(request.user, "regional_reports"):
+            return Response({"detail": "Regional reports are disabled for this administrator."}, status=403)
+        return Response({"success": True, **regional_overview(request.user)})
 
 
 class RegionalDrilldownView(APIView):
@@ -35,6 +39,11 @@ class RegionalDrilldownView(APIView):
         return [IsAuthenticatedRole(ANALYTICS_ROLES)]
 
     def get(self, request, location_id):
+        if not admin_dashboard_feature_enabled(request.user, "regional_reports"):
+            return Response({"detail": "Regional reports are disabled for this administrator."}, status=403)
+        location = AdministrativeLocation.objects.filter(pk=location_id, active=True).first()
+        if location is None or not admin_can_access_location(request.user, location):
+            return Response({"success": False, "error": "Unknown administrative location."}, status=404)
         data = regional_drilldown(location_id)
         if data is None:
             return Response({"success": False, "error": "Unknown administrative location."}, status=404)

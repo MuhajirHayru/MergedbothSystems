@@ -93,31 +93,43 @@ class AuditExportView(APIView):
     def get_permissions(self):
         return [IsAuthenticatedRole(SUMMARY_ROLES)]
 
+    @staticmethod
+    def _safe_cell(value):
+        """Neutralize CSV formula injection: a cell starting with = + - @ or TAB
+        is prefixed with a single quote so spreadsheet apps treat it as text."""
+        text = str(value)
+        if text[:1] in ("=", "+", "-", "@", chr(9), chr(13)):
+            return f"'{text}"
+        return text
+
     def get(self, request):
         from users.models import AuditLog as AL
 
         days, start = _window(request, default_days=90)
         qs = AL.objects.filter(created_at__gte=start).select_related("actor").order_by("-created_at")[:10000]
-        response = HttpResponse(content_type="text/csv")
+        # UTF-8 BOM so Excel/LibreOffice render Amharic and other non-Latin text correctly.
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="greenpath-audit-{timezone.localdate()}.csv"'
+        response.write("﻿")
         writer = csv.writer(response)
         writer.writerow([
             "id", "timestamp", "actor", "actor_role", "action", "category",
             "target", "detail", "success", "ip_address", "user_agent",
         ])
+        safe = self._safe_cell
         for entry in qs:
             writer.writerow([
-                entry.pk,
-                entry.created_at.isoformat(),
-                entry.actor.full_name if entry.actor else "system",
-                entry.actor.role if entry.actor else "",
-                entry.action,
-                category_for(entry.action),
-                entry.target,
-                entry.detail,
-                "success" if entry.success else "failed",
-                entry.ip_address or "",
-                entry.user_agent,
+                safe(entry.pk),
+                safe(entry.created_at.isoformat()),
+                safe(entry.actor.full_name if entry.actor else "system"),
+                safe(entry.actor.role if entry.actor else ""),
+                safe(entry.action),
+                safe(category_for(entry.action)),
+                safe(entry.target),
+                safe(entry.detail),
+                safe("success" if entry.success else "failed"),
+                safe(entry.ip_address or ""),
+                safe(entry.user_agent),
             ])
         AL.objects.create(
             actor=request.user,

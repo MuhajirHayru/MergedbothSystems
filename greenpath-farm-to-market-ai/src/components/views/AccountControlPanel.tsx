@@ -30,6 +30,7 @@ export const AccountControlPanel: React.FC = () => {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [reason, setReason] = useState('');
@@ -38,12 +39,18 @@ export const AccountControlPanel: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [flags, setFlags] = useState<Record<string, boolean>>({});
 
+  // Debounce search input to avoid excessive API calls
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const loadUsers = useCallback(async () => {
     setError('');
     setLoadingUsers(true);
     try {
       const params: Record<string, unknown> = { page_size: 200 };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (roleFilter) params.role = roleFilter;
       const res = await api.admin.users(params);
       const rows = res.data?.results ?? res.data ?? [];
@@ -61,7 +68,7 @@ export const AccountControlPanel: React.FC = () => {
     } finally {
       setLoadingUsers(false);
     }
-  }, [search, roleFilter]);
+  }, [debouncedSearch, roleFilter]);
 
   const loadFlags = useCallback(async () => {
     try {
@@ -116,6 +123,8 @@ export const AccountControlPanel: React.FC = () => {
 
   const toggleFlag = async (field: string, value: boolean) => {
     setBusy(true);
+    setError('');
+    setNotice('');
     try {
       await api.superadmin.updateSettings({ [field]: value, reason: 'Super Admin emergency control panel' });
       setFlags((f) => ({ ...f, [field]: value }));
@@ -128,16 +137,16 @@ export const AccountControlPanel: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
-      <div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+      <div className="pb-5 border-b border-slate-200 dark:border-slate-800">
         <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
           <ShieldAlert className="w-4 h-4" />
           <span>Platform governance</span>
         </div>
-        <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-0.5">
+        <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-1">
           Account &amp; Emergency System Controls
         </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           Every account action requires a reason and is written to the immutable audit trail.
           The last active Super Admin account can never be disabled here.
         </p>

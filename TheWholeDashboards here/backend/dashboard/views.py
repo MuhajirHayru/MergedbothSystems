@@ -459,8 +459,9 @@ class FinancialOperationsSummaryView(APIView):
 
     Wallet balances are current point-in-time totals. Funding, payout, order and
     payment activity is restricted to the requested period (``days`` or
-    ``date_from``/``date_to``). No revenue or profit figure is returned because
-    the platform has no commission, fee or expense ledger to derive one from.
+    ``date_from``/``date_to``). Recognized revenue comes from posted journal
+    entries; unresolved orders and missing product costs are reported separately
+    so one incomplete order does not hide revenue already recognized in the ledger.
     """
 
     permission_classes = [IsFinancialManager]
@@ -590,13 +591,76 @@ class FinancialOperationsSummaryView(APIView):
         beneficiary_accounts = BankAccount.objects.filter(
             user__role__in=participant_roles
         )
-        from payments.financial_models import FinancialOrderSnapshot, FinancialJournalEntry, FinancialOperatingExpense, FinancialPayrollRecord
-        financial_entries = FinancialJournalEntry.objects.filter(created_at__date__gte=start, created_at__date__lte=end)
-        commission_total = financial_entries.filter(category="MARKETPLACE_COMMISSION").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-        driver_total = financial_entries.filter(category="DELIVERY_FEE_EARNING").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        from payments.financial_models import (
+            FinancialOrderSnapshot,
+            FinancialJournalEntry,
+            FinancialOperatingExpense,
+            FinancialPayrollRecord,
+        )
+        financial_entries = FinancialJournalEntry.objects.filter(
+            status=FinancialJournalEntry.Status.POSTED,
+            created_at__date__gte=start,
+            created_at__date__lte=end,
+        )
+        revenue_categories = (
+            "MARKETPLACE_COMMISSION",
+            "MARKETPLACE_BUYER_FEE",
+            "MARKETPLACE_TRANSACTION_FEE",
+            "INSPECTION_REVENUE",
+            "DELIVERY_SERVICE_REVENUE",
+            "SUBSCRIPTION_REVENUE",
+            "ADVERTISING_REVENUE",
+            "OTHER_REVENUE",
+        )
+        recognized_revenue_entries = financial_entries.filter(category__in=revenue_categories)
+        revenue_by_category = {
+            row["category"]: row["total"] or Decimal("0.00")
+            for row in recognized_revenue_entries.values("category").annotate(total=Sum("amount"))
+        }
+        recognized_revenue = sum(revenue_by_category.values(), Decimal("0.00"))
+        commission_total = revenue_by_category.get("MARKETPLACE_COMMISSION", Decimal("0.00"))
+        delivery_revenue = revenue_by_category.get("DELIVERY_SERVICE_REVENUE", Decimal("0.00"))
+        driver_total = financial_entries.filter(category="DELIVERY_DRIVER_COMPENSATION").aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
         expense_total = FinancialOperatingExpense.objects.filter(status=FinancialOperatingExpense.Status.PAID, incurred_on__gte=start, incurred_on__lte=end).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
         payroll_total = FinancialPayrollRecord.objects.filter(status=FinancialPayrollRecord.Status.PAID, period_start__lte=end, period_end__gte=start).aggregate(total=Sum("base_amount"))["total"] or Decimal("0.00")
-        unresolved = FinancialOrderSnapshot.objects.filter(status=FinancialOrderSnapshot.Status.TAX_UNRESOLVED, created_at__date__gte=start, created_at__date__lte=end).exists()
+        unresolved_snapshots = FinancialOrderSnapshot.objects.filter(
+            status=FinancialOrderSnapshot.Status.TAX_UNRESOLVED,
+            created_at__date__gte=start,
+            created_at__date__lte=end,
+        ).filter(Q(commission_amount__gt=0) | Q(configuration__isnull=False))
+        unresolved_order_count = unresolved_snapshots.count()
+        unresolved_order_gross = unresolved_snapshots.aggregate(total=Sum("gross_order_value"))["total"] or Decimal("0.00")
+        unresolved_orders = []
+        for row in unresolved_snapshots.select_related("order").order_by("created_at").values(
+            "order__reference", "gross_order_value", "created_at",
+            "configuration_id", "tax_amount", "order__agreement",
+        ):
+            reasons = []
+            if row["configuration_id"] is None:
+                reasons.append("No commission rule was snapshotted at settlement")
+            if row["tax_amount"] is None:
+                reasons.append("No matching approved tax treatment was snapshotted at settlement")
+            if row["order__agreement"] is None:
+                reasons.append("No participant agreement is attached; retrospective fee collection is blocked")
+            unresolved_orders.append({
+                "order_reference": row["order__reference"],
+                "gross_order_value": self._money(row["gross_order_value"]),
+                "settled_at": row["created_at"].isoformat(),
+                "reasons": reasons,
+            })
+        has_revenue_entries = recognized_revenue_entries.exists()
+        revenue_missing = ["product acquisition cost / cost of goods sold"]
+        if delivery_revenue <= 0:
+            revenue_missing.insert(0, "delivery service revenue")
+        if unresolved_order_count:
+            revenue_missing.append("commission/tax treatment for unresolved completed orders")
+        revenue_reason = (
+            f"Recognized revenue is calculated from posted ledger entries. {unresolved_order_count} completed order(s) "
+            f"with {self._money(unresolved_order_gross)} ETB gross value remain excluded because commission or tax "
+            "was not approved when those transactions settled. Profit is incomplete until product cost is recorded."
+            if unresolved_order_count
+            else "Recognized revenue is calculated from posted ledger entries. Profit is incomplete until product cost is recorded."
+        )
 
         return Response(
             {
@@ -673,16 +737,24 @@ class FinancialOperationsSummaryView(APIView):
                     },
                 },
                 "revenue": {
-                    "available": FinancialOrderSnapshot.objects.filter(created_at__date__gte=start, created_at__date__lte=end).exists() and not unresolved,
-                    "reason": "Revenue reflects posted marketplace commissions only; delivery margin and product cost data are unavailable." if not unresolved else "One or more completed orders have unresolved commission or tax configuration.",
-                    "revenue": self._money(commission_total) if not unresolved and FinancialOrderSnapshot.objects.filter(created_at__date__gte=start, created_at__date__lte=end).exists() else None,
+                    "available": has_revenue_entries,
+                    "revenue_complete": unresolved_order_count == 0,
+                    "profit_available": False,
+                    "reason": revenue_reason,
+                    "revenue": self._money(recognized_revenue) if has_revenue_entries else None,
+                    "recognized_revenue": self._money(recognized_revenue) if has_revenue_entries else None,
                     "gross_profit": None,
                     "net_profit": None,
-                    "commission_revenue": self._money(commission_total) if not unresolved and FinancialOrderSnapshot.objects.filter(created_at__date__gte=start, created_at__date__lte=end).exists() else None,
+                    "commission_revenue": self._money(commission_total),
+                    "delivery_service_revenue": self._money(delivery_revenue),
+                    "other_platform_revenue": self._money(recognized_revenue - commission_total - delivery_revenue),
+                    "unresolved_order_count": unresolved_order_count,
+                    "unresolved_order_gross": self._money(unresolved_order_gross),
+                    "unresolved_orders": unresolved_orders,
                     "driver_compensation": self._money(driver_total),
                     "operating_expenses": self._money(expense_total),
                     "payroll_expenses": self._money(payroll_total),
-                    "missing": ["delivery service revenue", "product acquisition cost / cost of goods sold", "tax applicability where no approved rule exists"],
+                    "missing": revenue_missing,
                 },
                 "beneficiaries": {
                     "count": beneficiary_accounts.count(),

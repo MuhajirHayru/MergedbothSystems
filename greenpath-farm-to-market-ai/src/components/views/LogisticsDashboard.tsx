@@ -70,7 +70,7 @@ export const LogisticsDashboard: React.FC = () => {
   }, []);
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
       <div>
         <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
           <Truck className="w-4 h-4" />

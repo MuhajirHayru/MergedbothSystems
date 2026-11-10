@@ -232,6 +232,7 @@ class OrderSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     allowed_transitions = serializers.SerializerMethodField()
     agreement_status = serializers.SerializerMethodField()
+    financial_terms_snapshot = serializers.SerializerMethodField()
     payment_status_display = serializers.CharField(
         source="get_payment_status_display", read_only=True
     )
@@ -259,7 +260,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "counterparty_contact", "shipment",
             "delivered_at", "quality_confirmed_at", "dispute_reason",
             "rejection_reason",
-            "agreement_status", "allowed_transitions", "date", "created_at",
+            "agreement_status", "financial_terms_snapshot", "allowed_transitions", "date", "created_at",
             "updated_at",
         ]
         read_only_fields = [
@@ -437,6 +438,11 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_agreement_status(self, obj):
         agreement = getattr(obj, "agreement", None)
         return agreement.status if agreement else None
+
+    @extend_schema_field(serializers.JSONField())
+    def get_financial_terms_snapshot(self, obj):
+        agreement = getattr(obj, "agreement", None)
+        return agreement.financial_terms_snapshot if agreement else None
 
     def validate_quantity(self, value):
         if value <= 0:
@@ -840,8 +846,9 @@ class BusinessAgreementSerializer(serializers.ModelSerializer):
         fields = [
             "id", "order", "order_reference", "buyer_name", "seller_name",
             "product_title", "total_amount", "terms", "status", "activated_at",
-            "completed_at",
+            "completed_at", "financial_terms_snapshot",
         ]
+        read_only_fields = fields
 
 
 class ReviewSerializer(serializers.ModelSerializer):

@@ -28,6 +28,15 @@ ADMIN_SCOPE_TYPES = {
     "ADMIN_DIVISION": {"OTHER"},
 }
 
+DASHBOARD_FEATURES = {
+    "regional_reports": "Regional reports",
+    "user_management": "User directory and account actions",
+    "admin_management": "Create and manage administrators in your scope",
+    "registration_review": "Registration and document review",
+    "product_oversight": "Product listing oversight",
+    "administrative_audit": "Administrative audit history",
+}
+
 
 def location_descendant_ids(location):
     """Return the active location and all active descendants, without depth assumptions."""
@@ -70,9 +79,14 @@ def allowed_staff_scope_types(actor):
             "level", flat=True
         ).distinct()
         return ["TOP_LEVEL", *sorted({admin_scope_type_for_level(level) for level in location_levels})]
-    if actor.role != Role.USER_ADMIN:
+    if actor.role not in (Role.USER_ADMIN, Role.TOP_USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN):
         return []
     scope = administrator_scope_for(actor)
+    if scope is None and actor.role == Role.TOP_USER_ADMIN:
+        location_levels = AdministrativeLocation.objects.filter(active=True).values_list(
+            "level", flat=True
+        ).distinct()
+        return sorted({admin_scope_type_for_level(level) for level in location_levels})
     if scope is None:
         return []
     if scope.level == AdministratorScope.Level.GLOBAL:
@@ -108,19 +122,27 @@ def can_assign_admin_scope(actor, level, location, requested_scope_type=None):
                 or requested_scope_type == admin_scope_type_for_location(location)
             )
         )
-    if actor.role != Role.USER_ADMIN or level != AdministratorScope.Level.LOCATION:
+    if actor.role not in (Role.USER_ADMIN, Role.TOP_USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN) or level != AdministratorScope.Level.LOCATION:
         return False
     if location is None or not location.active:
         return False
     scope = administrator_scope_for(actor)
-    if scope is None:
+    if scope is None and actor.role == Role.TOP_USER_ADMIN:
+        scope = None
+    elif scope is None:
+        return False
+    if actor.role != Role.TOP_USER_ADMIN and not admin_dashboard_feature_enabled(actor, "admin_management"):
         return False
     scope_type = admin_scope_type_for_location(location)
     if requested_scope_type and requested_scope_type != scope_type:
         return False
     if scope_type not in allowed_staff_scope_types(actor):
         return False
-    if scope.level == AdministratorScope.Level.GLOBAL:
+    if actor.role == Role.REGIONAL_ADMIN and scope.location.level != "REGION":
+        return False
+    if actor.role == Role.ZONAL_ADMIN and scope.location.level != "ZONE":
+        return False
+    if scope is None or scope.level == AdministratorScope.Level.GLOBAL:
         return True
     return location.pk in set(location_descendant_ids(scope.location)) - {
         scope.location_id
@@ -130,13 +152,29 @@ def can_assign_admin_scope(actor, level, location, requested_scope_type=None):
 def manageable_admins_for(actor, queryset=None):
     queryset = queryset if queryset is not None else User.objects.all()
     if actor.role == Role.SUPER_ADMIN:
-        return queryset.filter(role__in=(Role.USER_ADMIN, Role.FINANCIAL_MANAGER))
-    if actor.role != Role.USER_ADMIN:
+        return queryset.filter(role__in=(
+            Role.USER_ADMIN,
+            Role.REGIONAL_ADMIN,
+            Role.ZONAL_ADMIN,
+            Role.WEREDA_ADMIN,
+            Role.FINANCIAL_MANAGER,
+            Role.LOGISTICS_MANAGER,
+            Role.CUSTOMER_SUPPORT,
+        ))
+    if actor.role not in (Role.USER_ADMIN, Role.TOP_USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN):
+        return queryset.none()
+    if actor.role != Role.TOP_USER_ADMIN and not admin_dashboard_feature_enabled(actor, "admin_management"):
         return queryset.none()
     scope = administrator_scope_for(actor)
+    if scope is None and actor.role == Role.TOP_USER_ADMIN:
+        return queryset.filter(
+            role__in=(Role.USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN),
+            administrative_scope__level=AdministratorScope.Level.LOCATION,
+        )
     if scope is None:
         return queryset.none()
-    scoped = queryset.filter(role=Role.USER_ADMIN)
+    managed_roles = (Role.USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN)
+    scoped = queryset.filter(role__in=managed_roles)
     if scope.level == AdministratorScope.Level.GLOBAL:
         return scoped.filter(
             administrative_scope__level=AdministratorScope.Level.LOCATION
@@ -169,6 +207,8 @@ def users_visible_to_admin(user, queryset=None):
     if user.role not in SCOPED_ADMIN_ROLES:
         return queryset.none()
     scope = administrator_scope_for(user)
+    if scope is None and user.role == Role.TOP_USER_ADMIN:
+        return queryset
     if scope is None:
         return queryset.none()
     if scope.level == AdministratorScope.Level.GLOBAL:
@@ -177,6 +217,161 @@ def users_visible_to_admin(user, queryset=None):
     if not location_ids:
         return queryset.none()
     return queryset.filter(registration__location_id__in=location_ids)
+
+
+def admin_dashboard_feature_enabled(user, feature):
+    """Enforce Top User Admin grants on scoped administration APIs."""
+    if user.role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+        return True
+    if feature not in DASHBOARD_FEATURES:
+        return False
+    scope = administrator_scope_for(user)
+    if scope is None or user.role not in SCOPED_ADMIN_ROLES:
+        return False
+    # Existing scoped admins keep their current access until a Top User Admin
+    # explicitly configures their feature allow-list.
+    if scope.feature_flags is None:
+        return True
+    return feature in scope.feature_flags
+
+
+def features_available_to_admin(user):
+    """Return the dashboard feature keys the administrator may pass to a child."""
+    if user.role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+        return list(DASHBOARD_FEATURES)
+    scope = administrator_scope_for(user)
+    if scope is None:
+        return []
+    enabled = list(DASHBOARD_FEATURES) if scope.feature_flags is None else scope.feature_flags
+    return [feature for feature in DASHBOARD_FEATURES if feature in enabled]
+
+
+def creatable_hierarchy_roles(actor):
+    """Return the child admin roles this actor can create under their location."""
+    if actor.role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+        return (Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN, Role.WEREDA_ADMIN)
+    if actor.role not in (Role.USER_ADMIN, Role.REGIONAL_ADMIN, Role.ZONAL_ADMIN):
+        return ()
+    if not admin_dashboard_feature_enabled(actor, "admin_management"):
+        return ()
+    scope = administrator_scope_for(actor)
+    if not scope or scope.level != AdministratorScope.Level.LOCATION:
+        return ()
+    location_level = scope.location.level
+    if location_level == "REGION" and actor.role != Role.ZONAL_ADMIN:
+        return (Role.ZONAL_ADMIN, Role.WEREDA_ADMIN)
+    if location_level == "ZONE" and actor.role != Role.REGIONAL_ADMIN:
+        return (Role.WEREDA_ADMIN,)
+    return ()
+
+
+def region_flag_for(location):
+    """Return the location's flag, or the nearest ancestor region's flag.
+
+    Zones and weredas inherit their region's insignia for dashboard display;
+    the nearest location carrying an explicit flag wins.
+    """
+    node = location
+    while node is not None:
+        if node.flag:
+            return node.flag
+        node = node.parent
+    return ""
+
+
+NATIONAL_FLAG = "🇪🇹"
+
+ALLOWED_FLAG_IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/svg+xml")
+MAX_FLAG_IMAGE_BYTES = 2 * 1024 * 1024
+
+
+def region_flag_image_for(location):
+    """Return the media URL of the nearest ancestor location with an uploaded
+    flag picture, or '' when none carries one."""
+    node = location
+    while node is not None:
+        if node.flag_image:
+            try:
+                return node.flag_image.url
+            except ValueError:
+                return ""
+        node = node.parent
+    return ""
+
+
+def national_flag_image_url():
+    """Media URL of the uploaded national flag picture ('' when unset)."""
+    from users.models import PlatformSettings
+
+    flag = PlatformSettings.load().national_flag
+    if not flag:
+        return ""
+    try:
+        return flag.url
+    except ValueError:
+        return ""
+
+
+def dashboard_flag_image_for(scope, role):
+    """The flag *picture* an administrator's dashboard should display.
+
+    Nationwide roles display the uploaded national flag; Addis Ababa admins
+    inherit it as the federal flag; everyone else inherits the nearest
+    ancestor region's uploaded picture.
+    """
+    from users.models import Role
+
+    national = national_flag_image_url()
+    if scope is None or scope.location_id is None:
+        if role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+            return national
+        return ""
+    if is_federal_city(scope.location):
+        return region_flag_image_for(scope.location) or national
+    if role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+        return region_flag_image_for(scope.location) or national
+    return region_flag_image_for(scope.location)
+
+
+def is_federal_city(location):
+    """Addis Ababa is the federal capital — its administrators carry the federal flag."""
+    return (
+        location is not None
+        and location.level in ("CITY", "REGION")
+        and location.name.strip().lower() == "addis ababa"
+    )
+
+
+def dashboard_flag_for(scope, role):
+    """The insignia an administrator's dashboard should display.
+
+    Nationwide roles (Super Admin / Top User Admin) display the national flag.
+    Addis Ababa user admins display the federal flag. Everyone else inherits
+    the nearest ancestor region's flag.
+    """
+    if scope is None or scope.location_id is None:
+        if role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+            return NATIONAL_FLAG
+        return ""
+    if is_federal_city(scope.location):
+        return scope.location.flag or NATIONAL_FLAG
+    if role in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
+        return scope.location.flag or NATIONAL_FLAG
+    return region_flag_for(scope.location)
+
+
+def admin_can_access_location(user, location):
+    """Return whether an admin may inspect this location and its reports."""
+    if user.role == Role.SUPER_ADMIN:
+        return True
+    if user.role not in SCOPED_ADMIN_ROLES:
+        return False
+    scope = administrator_scope_for(user)
+    if scope is None:
+        return user.role == Role.TOP_USER_ADMIN
+    if scope.level == AdministratorScope.Level.GLOBAL:
+        return True
+    return location.pk in location_descendant_ids(scope.location)
 
 
 class RegistrationReviewConflict(APIException):

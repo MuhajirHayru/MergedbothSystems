@@ -49,10 +49,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='ordershipmentdetails',
-            constraint=models.CheckConstraint(check=models.Q(('cargo_weight_kg__gt', 0)), name='order_shipment_positive_cargo_weight'),
+            constraint=models.CheckConstraint(condition=models.Q(('cargo_weight_kg__gt', 0)), name='order_shipment_positive_cargo_weight'),
         ),
         migrations.AddConstraint(
             model_name='ordershipmentdetails',
-            constraint=models.CheckConstraint(check=models.Q(('delivery_fee_proposal_amount__isnull', True), ('delivery_fee_proposal_amount__gt', 0), _connector='OR'), name='order_shipment_positive_fee_proposal'),
+            constraint=models.CheckConstraint(condition=models.Q(('delivery_fee_proposal_amount__isnull', True), ('delivery_fee_proposal_amount__gt', 0), _connector='OR'), name='order_shipment_positive_fee_proposal'),
         ),
     ]

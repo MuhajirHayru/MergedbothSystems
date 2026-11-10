@@ -12,6 +12,8 @@
   --line: #e5e7eb;
   --forest: #15803d;
   --forest-strong: #166534;
+  --sidebar: #003827;
+  --sidebar-strong: #00281d;
   --forest-soft: #f0fdf4;
   --leaf: #86efac;
   --teal: #0f766e;
@@ -58,8 +60,8 @@ h4 {
   width: var(--sidebar-width);
   flex-direction: column;
   padding: 0;
-  background: var(--forest);
-  border-right: 1px solid var(--forest-strong);
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-strong);
   color: #f0fdf4;
   transition: width 180ms ease, transform 180ms ease;
 }

@@ -127,14 +127,20 @@ if (startMarketplaceBackend) {
 }
 
 if (startDriver) {
-  console.log("Starting DriverApp frontend on http://localhost:3001");
-  run("driver-ui", npm, [...npmArgs, "run", "dev"], driverFrontendDir, "\x1b[33m");
-  console.log("Starting DriverApp API: Django on http://127.0.0.1:8001");
-  run(
-    "driver-api",
-    driverPython,
-    ["manage.py", "runserver", "127.0.0.1:8001", "--noreload"],
-    driverBackendDir,
-    "\x1b[35m"
-  );
+  if (existsSync(driverFrontendDir)) {
+    console.log("Starting DriverApp frontend on http://localhost:3001");
+    run("driver-ui", npm, [...npmArgs, "run", "dev"], driverFrontendDir, "\x1b[33m");
+  } else {
+    console.log("DriverApp is now fully integrated into the unified frontend on http://localhost:3000/driver");
+  }
+  if (existsSync(driverBackendDir)) {
+    console.log("Starting DriverApp API: Django on http://127.0.0.1:8001");
+    run(
+      "driver-api",
+      driverPython,
+      ["manage.py", "runserver", "127.0.0.1:8001", "--noreload"],
+      driverBackendDir,
+      "\x1b[35m"
+    );
+  }
 }

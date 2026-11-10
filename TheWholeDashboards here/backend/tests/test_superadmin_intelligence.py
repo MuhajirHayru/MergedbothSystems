@@ -109,3 +109,74 @@ def test_statistics_administrative_accountability(api, sa_api, super_admin):
     assert data["administrative"]["pending_by_region"] == [] or all(
         row["pending"] >= 0 for row in data["administrative"]["pending_by_region"]
     )
+
+
+# ------------------------------------------------------- system health honesty
+
+HEALTH_URL = "/api/v1/superadmin/health-detailed/"
+
+
+@pytest.mark.django_db
+def test_health_detailed_requires_super_admin(api, farmer, super_admin):
+    assert api.get(HEALTH_URL).status_code == 401
+    api.force_authenticate(user=farmer)
+    assert api.get(HEALTH_URL).status_code == 403
+    api.force_authenticate(user=super_admin)
+    assert api.get(HEALTH_URL).status_code == 200
+
+
+@pytest.mark.django_db
+def test_health_services_are_real_probes_not_hardcoded(sa_api, super_admin):
+    """Regression: Chapa/DriverApp/WebSocket statuses used to be hardcoded
+    'operational' strings regardless of actual configuration or outbox state.
+    """
+    data = sa_api.get(HEALTH_URL).json()
+    services = {s["name"]: s for s in data["services"]}
+
+    # Database & cache are live probes and must be operational here.
+    assert services["Database"]["status"] == "operational"
+    assert "connected" in services["Database"]["detail"]
+
+    # Chapa reflects configuration truth (sandbox key configured in dev settings).
+    assert services["Chapa Payment Gateway"]["status"] == "configured"
+    assert "Sandbox key configured" in services["Chapa Payment Gateway"]["detail"]
+
+    # WebSocket can only be claimed as configured — never "running".
+    ws = services["WebSocket Server"]
+    assert ws["status"] == "configured"
+    assert "running" not in ws["detail"].lower()
+
+    # DriverApp detail mirrors real outbox counters (or an honestly idle feed).
+    assert services["DriverApp Integration"]["status"] == "operational"
+    assert (
+        "blocked" in services["DriverApp Integration"]["detail"]
+        or "feed idle" in services["DriverApp Integration"]["detail"]
+    )
+
+
+@pytest.mark.django_db
+def test_health_blocked_outbox_degrades_driverapp(sa_api, super_admin, order):
+    """A blocked integration event must flip the DriverApp service to degraded."""
+    from payments.models import MarketplaceIntegrationOutbox
+
+    MarketplaceIntegrationOutbox.objects.create(
+        order=order, revision=1, event_type="order.updated", payload="{}",
+        status=MarketplaceIntegrationOutbox.Status.BLOCKED,
+    )
+    data = sa_api.get(HEALTH_URL).json()
+    driverapp = next(s for s in data["services"] if s["name"] == "DriverApp Integration")
+    assert driverapp["status"] == "degraded"
+    assert "1 blocked" in driverapp["detail"]
+
+
+@pytest.mark.django_db
+def test_health_error_count_uses_failed_audit_rows(sa_api, super_admin):
+    """error_rate_last_hour counts failed audit actions (a count, not a rate)."""
+    from users.models import AuditLog
+
+    AuditLog.objects.create(
+        action="login_failed", actor=super_admin, success=False,
+        ip_address="127.0.0.1",
+    )
+    data = sa_api.get(HEALTH_URL).json()
+    assert data["error_rate_last_hour"] >= 1

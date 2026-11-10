@@ -4,7 +4,13 @@ from rest_framework.routers import DefaultRouter
 from .account_control_views import BulkAccountStatusView
 from .banner_views import BannerAdminView, BannerDetailView, BannerReorderView
 from .oversight_views import ConversationMessagesView, ConversationOversightView
-from .enterprise_views import AllOrdersOversightView, AllWalletsOversightView, AnnouncementBroadcastView, SystemHealthDetailedView
+from .enterprise_views import (
+    AllOrdersOversightView,
+    AllWalletsOversightView,
+    AnnouncementEndView,
+    AnnouncementHistoryView,
+    SystemHealthDetailedView,
+)
 from .audit_views import (
     AuditExportView,
     AuditSummaryView,
@@ -16,6 +22,8 @@ from .superadmin_views import (
     AdminAccountViewSet,
     AnnouncementBroadcastView,
     AuditLogListView,
+    LocationFlagView,
+    NationalFlagView,
     LoginUnlockView,
     OverrideDecisionView,
     PlatformSettingsView,
@@ -31,6 +39,8 @@ router.register("audit", AuditLogListView, basename="superadmin-audit")
 
 urlpatterns = [
     path("statistics/", SuperAdminStatisticsView.as_view(), name="superadmin-statistics"),
+    path("locations/<uuid:pk>/flag/", LocationFlagView.as_view(), name="superadmin_location_flag"),
+    path("national-flag/", NationalFlagView.as_view(), name="superadmin_national_flag"),
     path("messaging-insights/", SuperAdminMessagingInsightsView.as_view(), name="superadmin-messaging-insights"),
     # Part 22 — must precede the accounts router so 'bulk-status' is not read as a pk.
     path(
@@ -66,6 +76,12 @@ urlpatterns = [
     path("orders-oversight/", AllOrdersOversightView.as_view(), name="sa_orders_oversight"),
     path("wallets-oversight/", AllWalletsOversightView.as_view(), name="sa_wallets_oversight"),
     path("broadcast/", AnnouncementBroadcastView.as_view(), name="sa_broadcast"),
+    path("broadcasts/", AnnouncementHistoryView.as_view(), name="sa_broadcast_history"),
+    path(
+        "broadcasts/<uuid:pk>/end/",
+        AnnouncementEndView.as_view(),
+        name="sa_broadcast_end",
+    ),
     # Part 20 — master audit center
     path("conversations/", ConversationOversightView.as_view(), name="superadmin_conversations"),
     path(

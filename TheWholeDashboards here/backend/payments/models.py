@@ -338,8 +338,19 @@ class BusinessAgreement(models.Model):
         Order, on_delete=models.PROTECT, related_name="agreement"
     )
     terms = models.TextField(blank=True, default="")
+    # Immutable fee terms selected at acceptance; settlement must use these
+    # exact approved methods, payers and amounts even if future rules change.
+    financial_terms_snapshot = models.JSONField(default=dict, blank=True)
     status = models.CharField(
         max_length=16, choices=AgreementStatus.choices, default=AgreementStatus.ACTIVE
+    )
+    # Named participant who contractually carries a fee for this transaction.
+    contractual_payer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="contractual_fee_agreements",
     )
     activated_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -347,6 +358,15 @@ class BusinessAgreement(models.Model):
     class Meta:
         db_table = "business_agreements"
         ordering = ["-activated_at"]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values_list(
+                "financial_terms_snapshot", flat=True
+            ).first()
+            if previous and previous != self.financial_terms_snapshot:
+                raise ValidationError("Accepted financial agreement terms are immutable.")
+        return super().save(*args, **kwargs)
 
 
 class OrderContactDisclosure(models.Model):
@@ -464,11 +484,11 @@ class OrderShipmentDetails(models.Model):
         db_table = "order_shipment_details"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(cargo_weight_kg__gt=0),
+                condition=models.Q(cargo_weight_kg__gt=0),
                 name="order_shipment_positive_cargo_weight",
             ),
             models.CheckConstraint(
-                check=models.Q(delivery_fee_proposal_amount__isnull=True)
+                condition=models.Q(delivery_fee_proposal_amount__isnull=True)
                 | models.Q(delivery_fee_proposal_amount__gt=0),
                 name="order_shipment_positive_fee_proposal",
             ),
@@ -508,11 +528,11 @@ class MarketplaceDeliveryFeeAgreement(models.Model):
         db_table = "marketplace_delivery_fee_agreements"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(amount__gt=0),
+                condition=models.Q(amount__gt=0),
                 name="marketplace_delivery_fee_agreement_positive",
             ),
             models.CheckConstraint(
-                check=models.Q(driver_proposal_version__gt=0),
+                condition=models.Q(driver_proposal_version__gt=0),
                 name="marketplace_delivery_fee_version_positive",
             ),
         ]
@@ -554,11 +574,11 @@ class MarketplaceDeliveryFeeReview(models.Model):
         db_table = "marketplace_delivery_fee_reviews"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(proposal_version__gt=0),
+                condition=models.Q(proposal_version__gt=0),
                 name="marketplace_delivery_fee_review_version_positive",
             ),
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(decision="approved", rejection_reason="")
                     | (
                         models.Q(decision="rejected")
@@ -657,6 +677,96 @@ class DriverShipmentEventInbox(models.Model):
         ordering = ["cursor"]
 
 
+class StockLot(models.Model):
+    """Inventory lot granted to the buyer of a released, completed order.
+
+    Wholesalers and retailers resell from their lots. Remaining quantity is
+    derived: purchased − resold − spoiled − adjusted. Never edited directly.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    origin_order = models.OneToOneField(
+        Order, on_delete=models.PROTECT, related_name="stock_lot"
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT, related_name="stock_lots"
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="stock_lots"
+    )
+    quantity_purchased = models.DecimalField(max_digits=12, decimal_places=2)
+    unit = models.CharField(max_length=30, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "stock_lots"
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["owner", "product"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity_purchased__gt=0),
+                name="stock_lot_positive_quantity",
+            )
+        ]
+
+    @property
+    def quantity_movements(self) -> Decimal:
+        return sum(
+            (m.quantity for m in self.movements.all()), Decimal("0")
+        )
+
+    @property
+    def quantity_remaining(self) -> Decimal:
+        return self.quantity_purchased - self.quantity_movements
+
+    def __str__(self):
+        return f"Lot {self.pk} · {self.quantity_purchased} {self.unit} · {self.owner_id}"
+
+
+class StockMovement(models.Model):
+    """Append-only quantity movement against one lot.
+
+    RESALE movements are created automatically when the owner's resale order
+    completes (FIFO across their open lots). SPOILAGE / ADJUSTMENT movements
+    are recorded by the lot owner. Movements are never edited or deleted.
+    """
+
+    class Type(models.TextChoices):
+        RESALE = "RESALE", "Resold"
+        SPOILAGE = "SPOILAGE", "Damaged or spoiled"
+        ADJUSTMENT = "ADJUSTMENT", "Adjustment"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    lot = models.ForeignKey(StockLot, on_delete=models.PROTECT, related_name="movements")
+    movement_type = models.CharField(max_length=12, choices=Type.choices)
+    quantity = models.DecimalField(max_digits=12, decimal_places=2)
+    resale_order = models.ForeignKey(
+        Order, on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_movements"
+    )
+    notes = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="stock_movements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "stock_movements"
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["lot", "created_at"])]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(quantity__gt=0), name="stock_movement_positive_quantity"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError("Stock movements are append-only.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Stock movements cannot be deleted.")
+
+
 class Wallet(models.Model):
     """Internal ETB balance. Manual transfers require staff verification."""
 
@@ -744,6 +854,7 @@ class WalletTransactionType(models.TextChoices):
     PAYOUT = "PAYOUT", "Payout"
     REFUND = "REFUND", "Refund"
     DELIVERY_FEE_EARNING = "DELIVERY_FEE_EARNING", "Delivery fee earning"
+    REVENUE_CHARGE = "REVENUE_CHARGE", "Approved platform fee charge"
 
 
 class WalletTransaction(models.Model):
@@ -906,7 +1017,7 @@ class Review(models.Model):
                 name="unique_order_participant_review",
             ),
             models.CheckConstraint(
-                check=models.Q(rating__gte=1) & models.Q(rating__lte=5),
+                condition=models.Q(rating__gte=1) & models.Q(rating__lte=5),
                 name="review_rating_1_to_5",
             ),
         ]

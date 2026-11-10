@@ -4,6 +4,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.core.validators import FileExtensionValidator
 from django.utils import timezone
@@ -72,6 +73,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True, max_length=255)
     phone = models.CharField(max_length=20, blank=True, default="")
     location = models.CharField(max_length=255, blank=True, default="")
+    # Short self-written bio shown on the profile and beside chat identity.
+    bio = models.TextField(blank=True, default="")
     profile_photo = models.ImageField(
         upload_to="profile-photos/%Y/%m/",
         blank=True,
@@ -269,6 +272,13 @@ class PlatformSettings(models.Model):
     )
     text_messaging_enabled = models.BooleanField(default=True)
     voice_messaging_enabled = models.BooleanField(default=True)
+    # National flag picture shown on nationwide dashboards (Super Admin /
+    # Top User Admin managed). Addis Ababa administrators inherit it as the
+    # federal flag unless their location carries its own.
+    national_flag = models.ImageField(
+        upload_to="location_flags/", blank=True, null=True,
+        help_text="Ethiopian national flag picture displayed on nationwide dashboards.",
+    )
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="settings_updates",
@@ -296,6 +306,8 @@ def website_asset_path(instance, filename):
 def default_website_content():
     return {
         "landing_badge": "AI-integrated farm-to-marketplace",
+        "amharic_title": "ግሪንፓዝ የግብርና ገበያ AI",
+        "oromo_title": "GreenPath Gabaa Qonnaa AI",
         "landing_title": "Connect Ethiopian farmers directly to wholesale buyers",
         "landing_subtitle": "A trusted marketplace for every side of the agricultural trade.",
         "landing_description": (
@@ -421,6 +433,21 @@ class WebsiteContent(models.Model):
         return content
 
 
+class AuditLogQuerySet(models.QuerySet):
+    """Block the two bulk paths that would otherwise bypass ``AuditLog``'s guards.
+
+    ``Model.delete()``/``Model.save()`` are enforced per instance; ``QuerySet``
+    ``delete()``/``update()`` would still let a caller erase or rewrite history in
+    one statement, so they raise the same ``ValidationError``.
+    """
+
+    def update(self, **kwargs):
+        raise ValidationError("Audit records are append-only and cannot be edited.")
+
+    def delete(self):
+        raise ValidationError("Audit records cannot be deleted.")
+
+
 class AuditLog(models.Model):
     """Immutable trail of privileged and security-relevant actions (FR-SA-02/03, Part 20).
 
@@ -440,6 +467,8 @@ class AuditLog(models.Model):
     user_agent = models.CharField(max_length=400, blank=True, default="")
     success = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AuditLogQuerySet.as_manager()
 
     class Meta:
         db_table = "audit_logs"
