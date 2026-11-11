@@ -7,6 +7,7 @@ from .delivery_fee_review_api import (
     MarketplaceDeliveryFeeReviewView,
 )
 from .bank_account_api import BankAccountDetailView, BankAccountListCreateView, PayoutBankListView
+from .transport_agreement_api import TransportAgreementDetailView, TransportAgreementListCreateView, TransportQuoteView
 from .views import LotMovementCreateView, MyLotsView, PaymentViewSet
 from .shipment_views import BuyerShipmentListView, BuyerShipmentDetailView
 from .freight_bid_views import (
@@ -114,6 +115,9 @@ urlpatterns = [
     path("banks/", PayoutBankListView.as_view(), name="payout-banks"),
     path("bank-accounts/", BankAccountListCreateView.as_view(), name="bank-accounts"),
     path("bank-accounts/<uuid:pk>/", BankAccountDetailView.as_view(), name="bank-account-detail"),
+    path("transport-agreements/", TransportAgreementListCreateView.as_view(), name="transport-agreements"),
+    path("transport-agreements/<uuid:pk>/", TransportAgreementDetailView.as_view(), name="transport-agreement-detail"),
+    path("transport-quotes/", TransportQuoteView.as_view(), name="transport-quotes"),
     path("financial/summary/", FinancialSummaryView.as_view(), name="financial-summary"),
     path("financial/report/", FinancialReportView.as_view(), name="financial-report"),
     path("financial/statement/", FinancialStatementView.as_view(), name="financial-statement"),

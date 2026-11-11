@@ -81,6 +81,74 @@ class FreightJob(models.Model):
             raise ValidationError("An open job cannot have an assigned driver.")
 
 
+
+
+class DriverTransportAgreement(models.Model):
+    """Standing transportation agreement between the platform and a driver.
+
+    The Super Admin sets the agreed rates; the pricing engine uses the ACTIVE
+    agreement to compute transport quotations. Drivers read their own
+    agreement but can never change the rates. An expired, suspended or draft
+    agreement is never used for a new shipment quotation.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        ACTIVE = "ACTIVE", "Active"
+        SUSPENDED = "SUSPENDED", "Suspended"
+        EXPIRED = "EXPIRED", "Expired"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    driver = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="transport_agreements",
+    )
+    vehicle_category = models.CharField(max_length=120, blank=True, default="")
+    rate_per_km = models.DecimalField(max_digits=10, decimal_places=2)
+    rate_per_quintal = models.DecimalField(max_digits=10, decimal_places=2)
+    start_date = models.DateField()
+    expiry_date = models.DateField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        null=True, blank=True, related_name="transport_agreements_approved",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    notes = models.CharField(max_length=300, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "driver_transport_agreements"
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(rate_per_km__gt=0) & models.Q(rate_per_quintal__gt=0),
+                name="driver_transport_agreement_rates_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expiry_date__gt=models.F("start_date")),
+                name="driver_transport_agreement_expiry_after_start",
+            ),
+            models.UniqueConstraint(
+                fields=["driver", "vehicle_category"],
+                condition=models.Q(status="ACTIVE"),
+                name="unique_active_agreement_per_driver_category",
+            ),
+        ]
+
+    def clean(self):
+        if self.expiry_date and self.start_date and self.expiry_date <= self.start_date:
+            raise ValidationError({"expiry_date": "Expiry must be after the start date."})
+
+    def is_usable(self, on=None):
+        on = on or timezone.now().date()
+        return self.status == self.Status.ACTIVE and self.start_date <= on <= self.expiry_date
+
+    def __str__(self):
+        return f"{self.driver.email} · {self.vehicle_category or 'any vehicle'} · {self.status}"
+
+
 class FreightBid(models.Model):
     class Status(models.TextChoices):
         SUBMITTED = "SUBMITTED", "Submitted"
