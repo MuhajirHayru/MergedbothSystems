@@ -75,11 +75,16 @@ def review_delivery_fee_agreement(
             )
             if (
                 details is None
+                or agreement.buyer_accepted_at is None
+                or agreement.driver_accepted_at is None
                 or proposal_version != agreement.driver_proposal_version
-                or details.delivery_fee_proposal_version
-                != agreement.driver_proposal_version
-                or details.delivery_fee_proposal_amount != agreement.amount
-                or details.delivery_fee_proposal_currency != agreement.currency
+                or (
+                    agreement.driver_shipment_id is not None
+                    and (
+                        details.delivery_fee_proposal_version != agreement.driver_proposal_version
+                        or details.delivery_fee_proposal_amount != agreement.amount
+                    )
+                )
                 or details.buyer_confirmed_revision != details.details_revision
                 or details.seller_confirmed_revision != details.details_revision
             ):
@@ -88,8 +93,6 @@ def review_delivery_fee_agreement(
                 )
 
             from .integration import enqueue_delivery_fee_review
-            from .wallet_services import credit_driver_delivery_fee
-
             review = MarketplaceDeliveryFeeReview.objects.create(
                 agreement=agreement,
                 decision_event_id=uuid.uuid4(),
@@ -101,8 +104,17 @@ def review_delivery_fee_agreement(
                 proposal_version=proposal_version,
                 decided_at=timezone.now(),
             )
+            # Approval records the contractual terms. Driver funds are not
+            # credited until the buyer collection is verified and delivery is
+            # complete; this prevents paying an uncollected or undelivered fee.
             if decision == MarketplaceDeliveryFeeReview.Decision.APPROVED:
-                credit_driver_delivery_fee(agreement, actor)
+                from .financial_models import DeliveryFeePayment
+                from .financial_services import credit_driver_for_verified_delivery
+                paid_collection = DeliveryFeePayment.objects.filter(
+                    agreement=agreement, status=DeliveryFeePayment.Status.VERIFIED
+                ).first()
+                if paid_collection:
+                    credit_driver_for_verified_delivery(paid_collection, actor=actor)
             enqueue_delivery_fee_review(review)
             AuditLog.objects.create(
                 actor=actor,

@@ -268,6 +268,57 @@ def test_chapa_amount_mismatch_is_not_approvable(
     assert not WalletTransaction.objects.filter(wallet__user=wholesaler).exists()
 
 
+def test_webhook_without_secret_fails_closed(
+    api, wholesaler, chapa_configuration, settings
+):
+    settings.CHAPA_WEBHOOK_SECRET = ""
+    body = json.dumps({"event": "charge.success", "data": {"tx_ref": "x"}}).encode()
+    response = api.generic(
+        "POST",
+        "/api/v1/wallet/chapa/webhook/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_CHAPA_SIGNATURE="anything",
+    )
+    assert response.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    (("currency", "USD"), ("mode", "live"), ("tx_ref", "OTHER-REF")),
+)
+def test_chapa_verification_rejects_mismatched_provider_data(
+    api, wholesaler, chapa_configuration, monkeypatch, field, value
+):
+    api.force_authenticate(user=wholesaler)
+    created = api.post(
+        "/api/v1/wallet/funding/chapa/",
+        {"amount": "55.00"},
+        format="json",
+    )
+    reference = created.data["external_reference"]
+    data = {
+        "status": "success",
+        "tx_ref": reference,
+        "amount": "55.00",
+        "currency": "ETB",
+        "mode": "test",
+    }
+    data[field] = value
+    monkeypatch.setattr(
+        "payments.chapa._chapa_request",
+        lambda method, path, payload=None: {"status": "success", "data": data},
+    )
+    response = api.post(
+        f"/api/v1/wallet/funding/{created.data['id']}/verify/",
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == FundingStatus.FAILED
+    assert response.data["payment_verified"] is False
+    assert Wallet.objects.get(user=wholesaler).available_balance == Decimal("100000.00")
+
+
 def test_webhook_signature_required_and_duplicate_delivery_is_safe(
     api, wholesaler, chapa_configuration, monkeypatch
 ):
@@ -311,18 +362,39 @@ def test_webhook_signature_required_and_duplicate_delivery_is_safe(
     assert invalid.status_code == 403
     assert not verification_calls
 
-    for signature_header in (
-        {"HTTP_X_CHAPA_SIGNATURE_V2": signature},
-        {"HTTP_X_CHAPA_SIGNATURE": signature_v1},
-    ):
-        response = api.generic(
-            "POST",
-            "/api/v1/wallet/chapa/webhook/",
-            data=body,
-            content_type="application/json",
-            **signature_header,
-        )
-        assert response.status_code == 200, response.data
+    # Chapa's legacy Chapa-Signature is HMAC(secret, secret): a constant that
+    # does not bind this body. Accepting it alone would allow replay with a
+    # forged payload, so the endpoint must reject it.
+    constant_only = api.generic(
+        "POST",
+        "/api/v1/wallet/chapa/webhook/",
+        data=body,
+        content_type="application/json",
+        HTTP_CHAPA_SIGNATURE=signature_v1,
+    )
+    assert constant_only.status_code == 403
+    assert not verification_calls
+
+    # The documented body-bound header is accepted.
+    response = api.generic(
+        "POST",
+        "/api/v1/wallet/chapa/webhook/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_CHAPA_SIGNATURE=signature,
+    )
+    assert response.status_code == 200, response.data
+
+    # Replaying the same signed callback is safe: it returns 200 but does not
+    # verify, credit, or transition the funding request a second time.
+    replay = api.generic(
+        "POST",
+        "/api/v1/wallet/chapa/webhook/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_CHAPA_SIGNATURE=signature,
+    )
+    assert replay.status_code == 200, replay.data
 
     assert verification_calls == [
         ("GET", f"/transaction/verify/{reference}")

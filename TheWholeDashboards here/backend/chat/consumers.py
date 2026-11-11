@@ -48,6 +48,17 @@ class SafeJsonConsumer(AsyncJsonWebsocketConsumer):
 class _AuthenticatedConsumer(SafeJsonConsumer):
     """Shared handshake guard: reject unauthenticated sockets before accept."""
 
+    async def _ensure_realtime_loop(self):
+        """Register this consumer's event loop for cross-thread pushes.
+
+        runserver/daphne runs every protocol on one loop; capturing it lets
+        ``greenpath.realtime.push_to_group`` schedule group sends from sync
+        REST views onto the loop the in-memory channel layer lives on.
+        """
+        from greenpath.realtime import set_main_loop
+
+        set_main_loop(asyncio.get_running_loop())
+
     @database_sync_to_async
     def _account_is_active(self):
         from users.models import AccountStatus, User
@@ -86,6 +97,7 @@ class ChatConsumer(_AuthenticatedConsumer):
             return
         if not await self._ensure_active():
             return
+        await self._ensure_realtime_loop()
 
         self.channel_id = str(self.scope["url_route"]["kwargs"]["channel_id"])
         if not await self._is_participant(self.user, self.channel_id):

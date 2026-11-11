@@ -166,11 +166,14 @@ class LoginView(APIView):
         if not username or not password:
             raise ValidationError({"detail": "Username and password are required."})
 
-        if "@" in username:
-            candidate = User.objects.filter(email__iexact=username).values_list(
-                "username", flat=True
+        # The merged platform account authenticates by EMAIL (there is no
+        # username field on the unified User model). A bare legacy username
+        # is resolved to its account email when one matches.
+        if "@" not in username:
+            resolved = User.objects.filter(email__iexact=username).values_list(
+                "email", flat=True
             ).first()
-            username = candidate or username
+            username = resolved or username
         user = authenticate(request, username=username, password=password)
         if user is None:
             AuditEvent.objects.create(

@@ -427,8 +427,6 @@ class AdminAccountSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "You cannot create this administrator role. A parent administrator with the admin-management grant may create only administrators below their location."
                 )
-        if value == Role.USER_ADMIN and request and request.user.role not in (Role.SUPER_ADMIN, Role.TOP_USER_ADMIN):
-            raise serializers.ValidationError("Only a national administrator can create a User Admin account.")
         if value not in (Role.USER_ADMIN, *hierarchy_roles) and request and request.user.role != Role.SUPER_ADMIN:
             raise serializers.ValidationError(
                 "Only the Super Admin can create or manage Financial Manager, "

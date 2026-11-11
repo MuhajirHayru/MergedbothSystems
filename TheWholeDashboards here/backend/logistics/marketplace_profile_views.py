@@ -91,7 +91,7 @@ class DriverProfileView(APIView):
                 {
                     "linked": False,
                     "profile": {
-                        "full_name": full_name or request.user.username,
+                        "full_name": full_name or request.user.email,
                         "email": request.user.email,
                         "phone": getattr(driver_profile, "phone_number", ""),
                         "location": "",

@@ -73,7 +73,7 @@ const VIEW_ROLES: Record<string, UserRole[]> = {
   discount_management: ['financial_manager', 'super_admin'],
 
   // Shared operational screens
-  logistics_dashboard: ['logistics_manager', 'financial_manager', 'super_admin'],
+  logistics_dashboard: ['logistics_manager', 'financial_manager', 'customer_support', 'super_admin'],
   logistics_manager: ['logistics_manager'],
   freight_bids: ['logistics_manager', 'financial_manager', 'super_admin'],
   reports_regional: ['farmer', 'wholesaler', 'financial_manager', 'super_admin', 'top_user_admin'],

@@ -2,7 +2,7 @@
 import secrets
 import uuid
 from decimal import Decimal, InvalidOperation
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 
 from products.models import Product, ProductStatus, ProductType
 from users.models import AuditLog, Role, User
+from registrations.models import LocationLevel, UserRegistration
 from users.permissions import IsFinancialManager, IsWholesaler, IsAuthenticatedRole
 
 from notifications.services import notify
@@ -40,6 +41,7 @@ from .models import (
     PaymentRecord,
     PaymentStatus,
     Review,
+    Wallet,
     WalletFundingRequest,
     WalletPayoutRequest,
     WalletTransactionType,
@@ -592,7 +594,11 @@ class OrderViewSet(
         details = OrderShipmentDetails.objects.filter(order=order).first()
         if request.method == "GET":
             if details is None:
-                get_object_or_404(OrderShipmentDetails, order=order)
+                return Response({
+                    "exists": False,
+                    "authorized": False,
+                    "registered_addresses": self._visible_registered_addresses(order, request.user, False),
+                })
             if details.authorized_at and not details.closed_at:
                 AuditLog.objects.create(
                     actor=request.user,
@@ -600,19 +606,57 @@ class OrderViewSet(
                     target=str(order.pk),
                     detail="Authorized order participant viewed shipment details.",
                 )
-            return Response(self._shipment_details_response(details))
+            payload = self._shipment_details_response(details)
+            payload["registered_addresses"] = self._visible_registered_addresses(order, request.user, payload["authorized"])
+            if payload["authorized"]:
+                from .financial_models import DeliveryFeePayment
+                from .freight_models import FreightJob
+                from .models import MarketplaceDeliveryFeeAgreement, MarketplaceDeliveryFeeReview
+                payment = DeliveryFeePayment.objects.filter(
+                    agreement__order=order
+                ).order_by("-created_at").first()
+                payload["delivery_payment"] = ({
+                    "id": str(payment.pk), "status": payment.status,
+                    "customer_amount": str(payment.customer_amount),
+                    "currency": payment.agreement.currency,
+                    "checkout_url": payment.checkout_url if request.user.pk == order.buyer.pk else "",
+                    "driver_credited_at": payment.compensation_paid_at,
+                } if payment else None)
+                job = FreightJob.objects.filter(order=order).select_related("assigned_driver").first()
+                agreement = MarketplaceDeliveryFeeAgreement.objects.filter(order=order).first()
+                review = MarketplaceDeliveryFeeReview.objects.filter(agreement=agreement).first() if agreement else None
+                payload["freight_assignment"] = ({
+                    "job_id": str(job.pk), "status": job.status,
+                    "delivery_status": job.delivery_status,
+                    "driver_name": job.assigned_driver.full_name if job.assigned_driver_id else "",
+                    "agreed_fee": str(job.assigned_fee) if job.assigned_fee is not None else None,
+                    "financial_review": review.decision if review else "pending",
+                    "buyer_accepted": bool(agreement and agreement.buyer_accepted_at),
+                } if job else None)
+            return Response(payload)
         if details is not None and details.authorized_at is not None:
             raise ValidationError(
                 "Shipment details are locked after driver authorization."
             )
 
+        shipment_data = request.data.copy()
+        # Each participant enters their own endpoint. The other endpoint is
+        # resolved from that participant's registration on the server.
+        other_prefix = "pickup" if request.user.pk == order.buyer.pk else "destination"
+        registered_other = self._registered_party_address(order.seller if other_prefix == "pickup" else order.buyer)
+        if registered_other:
+            address_key = f"{other_prefix}_address_line"
+            if not shipment_data.get(address_key):
+                shipment_data[address_key] = registered_other["address_line"]
+
         serializer = OrderShipmentDetailsSerializer(
             details,
-            data=request.data,
+            data=shipment_data,
             partial=request.method == "PATCH" and details is not None,
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
+        self._validate_registered_route(order, serializer.validated_data, details, request.user)
         if (
             "delivery_fee_proposal_amount" in serializer.validated_data
             and request.user.pk != order.buyer.pk
@@ -625,12 +669,13 @@ class OrderViewSet(
             ).first()
             updated = OrderShipmentDetailsSerializer(
                 details,
-                data=request.data,
+                data=shipment_data,
                 partial=request.method == "PATCH" and details is not None,
                 context={"request": request},
             )
             updated.is_valid(raise_exception=True)
             values = updated.validated_data
+            self._validate_registered_route(order, values, details, request.user)
             if details is None:
                 details = OrderShipmentDetails(order=order, **values)
                 details.details_revision = 1
@@ -727,8 +772,81 @@ class OrderViewSet(
         return Response(self._shipment_details_response(details))
 
     @staticmethod
+    def _registered_party_address(user):
+        registration = UserRegistration.objects.select_related("location").filter(user=user).first()
+        if not registration:
+            return None
+        ancestors = []
+        current = registration.location
+        while current is not None:
+            ancestors.append(current)
+            current = current.parent
+        by_level = {item.level: item for item in reversed(ancestors)}
+        region = by_level.get(LocationLevel.REGION)
+        administrative_label = " → ".join(item.name for item in reversed(ancestors))
+        # If no street/locality text was supplied, the saved administrative
+        # hierarchy is still an exact registered delivery location; no map
+        # coordinates or geocoded address are invented from it.
+        profile_address = (registration.business_address or administrative_label or "").strip()
+        return {
+            "location_ids": {
+                "region": str(region.pk) if region else None,
+                "zone": str(by_level[LocationLevel.ZONE].pk) if LocationLevel.ZONE in by_level else None,
+                "wereda": str(by_level[LocationLevel.WOREDA].pk) if LocationLevel.WOREDA in by_level else None,
+                "kebele": str(by_level[LocationLevel.KEBELE].pk) if LocationLevel.KEBELE in by_level else None,
+            },
+            "administrative_label": administrative_label,
+            "address_line": profile_address,
+            "has_address_line": bool(profile_address),
+            "source": "seller_registration" if user.role in (Role.FARMER, Role.WHOLESALER) else "buyer_registration",
+        }
+
+    @classmethod
+    def _visible_registered_addresses(cls, order, actor, authorized):
+        result = {}
+        for prefix, user in (("pickup", order.seller), ("destination", order.buyer)):
+            profile = cls._registered_party_address(user)
+            if profile and (authorized or actor.pk == user.pk):
+                result[prefix] = profile
+            elif profile:
+                result[prefix] = {key: value for key, value in profile.items() if key != "address_line"}
+            else:
+                result[prefix] = None
+        return result
+
+    @classmethod
+    def _validate_registered_route(cls, order, values, instance, actor):
+        """Keep shipment endpoints anchored to each party's registered business location."""
+        for prefix, user in (("pickup", order.seller), ("destination", order.buyer)):
+            registered = cls._registered_party_address(user)
+            if not registered:
+                continue
+            expected = registered["location_ids"]
+            for part in ("region", "zone", "wereda", "kebele"):
+                field = f"{prefix}_{part}"
+                submitted = values.get(field, getattr(instance, field, None) if instance else None)
+                expected_id = expected[part]
+                if expected_id and str(getattr(submitted, "pk", submitted)) != expected_id:
+                    raise ValidationError({field: f"Use the {prefix} party's registered location."})
+                if not expected_id and part != "region" and submitted is not None:
+                    # A profile location recorded at a higher level cannot be
+                    # silently narrowed to an unverified sub-location.
+                    raise ValidationError({field: "This party has no registered location at this level."})
+            address_field = f"{prefix}_address_line"
+            submitted_address = values.get(address_field, getattr(instance, address_field, "") if instance else "")
+            registered_address = registered["address_line"]
+            if not registered_address:
+                raise ValidationError({address_field: f"Complete the {prefix} party's registered business address before arranging delivery."})
+            if not submitted_address and actor.pk != user.pk and registered_address:
+                values[address_field] = registered_address
+                submitted_address = registered_address
+            if registered_address and submitted_address.strip() != registered_address:
+                raise ValidationError({address_field: f"Use the exact address recorded in the {prefix} party's profile."})
+
+    @staticmethod
     def _shipment_details_response(details):
         data = {
+            "exists": True,
             "details_revision": details.details_revision,
             "buyer_confirmed_revision": details.buyer_confirmed_revision,
             "buyer_confirmed_at": details.buyer_confirmed_at,
@@ -747,6 +865,101 @@ class OrderViewSet(
                 destination_region=details.destination_region.name,
             )
         return data
+
+    @action(detail=True, methods=["post"], url_path="delivery-payment")
+    @transaction.atomic
+    def delivery_payment_checkout(self, request, pk=None):
+        """Let the order buyer pay the approved, assigned freight agreement."""
+        order = self.get_object()
+        if request.user.pk != order.buyer.pk:
+            raise PermissionDenied("Only the order buyer may pay its delivery fee.")
+        from .financial_models import DeliveryFeePayment
+        from .models import MarketplaceDeliveryFeeAgreement, MarketplaceDeliveryFeeReview
+        from .financial_services import create_delivery_payment
+        from .chapa import ChapaGatewayError, initialize_delivery_checkout
+
+        agreement = MarketplaceDeliveryFeeAgreement.objects.filter(order=order).select_related(
+            "driver_payee", "order"
+        ).first()
+        if agreement is None or agreement.driver_payee_id is None:
+            raise ValidationError({"delivery_payment": "A driver must win a freight bid before the delivery fee can be paid."})
+        if not MarketplaceDeliveryFeeReview.objects.filter(
+            agreement=agreement, decision=MarketplaceDeliveryFeeReview.Decision.APPROVED
+        ).exists():
+            raise ValidationError({"delivery_payment": "The financial manager must approve the delivery agreement first."})
+        payment = DeliveryFeePayment.objects.filter(agreement=agreement).order_by("-created_at").first()
+        if payment is None or payment.status in (DeliveryFeePayment.Status.FAILED, DeliveryFeePayment.Status.PARTIAL, DeliveryFeePayment.Status.REFUNDED):
+            reference = f"DEL-{order.pk}-{uuid.uuid4().hex[:16].upper()}"
+            payment = create_delivery_payment(
+                agreement=agreement, actor=request.user, payment_reference=reference
+            )
+        payment = DeliveryFeePayment.objects.select_for_update().get(pk=payment.pk)
+        if payment.status == DeliveryFeePayment.Status.VERIFIED:
+            return Response({"id": str(payment.pk), "status": payment.status, "customer_amount": str(payment.customer_amount)})
+        if not payment.checkout_url:
+            try:
+                payment.checkout_url = initialize_delivery_checkout(payment)
+            except ChapaGatewayError as error:
+                raise ValidationError({"delivery_payment": "The payment provider could not start checkout. Try again shortly."}) from error
+            payment.save(update_fields=["checkout_url"])
+        return Response({
+            "id": str(payment.pk), "status": payment.status,
+            "customer_amount": str(payment.customer_amount),
+            "currency": agreement.currency, "checkout_url": payment.checkout_url,
+        })
+
+    @action(detail=True, methods=["post"], url_path="accept-delivery-bid")
+    @transaction.atomic
+    def accept_delivery_bid(self, request, pk=None):
+        """Record the buyer's explicit consent to the assigned driver's bid."""
+        order = self.get_object()
+        if request.user.pk != order.buyer.pk:
+            raise PermissionDenied("Only the order buyer may accept the delivery bid.")
+        from .freight_models import FreightJob
+        from .models import MarketplaceDeliveryFeeAgreement
+        job = FreightJob.objects.select_for_update().filter(
+            order=order, status=FreightJob.Status.ASSIGNED
+        ).select_related("assigned_driver").first()
+        if job is None or not job.assigned_driver_id or job.assigned_fee is None:
+            raise ValidationError({"bid": "Logistics must assign a driver bid before buyer acceptance."})
+        prior = MarketplaceDeliveryFeeAgreement.objects.filter(order=order).first()
+        if prior:
+            if prior.driver_payee_id != job.assigned_driver_id or prior.amount != job.assigned_fee:
+                raise ValidationError({"bid": "The assigned bid differs from the existing immutable delivery agreement."})
+            agreement = prior
+        else:
+            details = get_object_or_404(OrderShipmentDetails, order=order, authorized_at__isnull=False)
+            agreement = MarketplaceDeliveryFeeAgreement.objects.create(
+                order=order,
+                source_event_id=uuid.uuid4(),
+                driver_shipment_id=details.driver_shipment_id,
+                driver_payee=job.assigned_driver,
+                driver_external_user_id=str(job.assigned_driver_id),
+                driver_proposal_version=1,
+                amount=job.assigned_fee,
+                currency="ETB",
+                buyer_accepted_at=timezone.now(),
+                driver_accepted_at=job.assigned_at or timezone.now(),
+            )
+            from .financial_services import snapshot_delivery_pricing
+            try:
+                snapshot_delivery_pricing(agreement)
+            except ValueError as error:
+                raise ValidationError({"delivery_pricing": str(error)}) from error
+        AuditLog.objects.create(
+            actor=request.user, action="delivery_bid_buyer_accepted", target=str(order.pk),
+            detail=f"Buyer accepted driver {job.assigned_driver_id} bid of {job.assigned_fee} ETB.",
+        )
+        notify(
+            user_ids=[job.assigned_driver_id], type="SYSTEM",
+            message=f"The buyer accepted your {job.assigned_fee} ETB delivery bid for {order.reference}.",
+            actor=request.user, target_url="/driver",
+        )
+        return Response({
+            "accepted": True, "agreement_id": agreement.pk,
+            "driver_name": job.assigned_driver.full_name,
+            "amount": str(agreement.amount), "currency": agreement.currency,
+        })
 
     @action(detail=True, methods=["get"], url_path="receipt")
     def receipt(self, request, pk=None):
@@ -1691,9 +1904,7 @@ class ChapaWebhookView(APIView):
     def post(self, request):
         body = request.body
         if not verify_webhook_signature(
-            body,
-            request.headers.get("x-chapa-signature", ""),
-            request.headers.get("x-chapa-signature-v2", ""),
+            body, request.headers.get("x-chapa-signature", "")
         ):
             return Response({"detail": "Invalid Chapa webhook signature."}, status=403)
         funding = funding_from_webhook(body)
@@ -1786,6 +1997,16 @@ class WalletFundingFlagView(APIView):
         )
 
 
+def _payout_by_idempotency_key(idempotency_key):
+    return (
+        WalletPayoutRequest.objects.select_related(
+            "wallet__user", "payout_account__bank"
+        )
+        .filter(idempotency_key=idempotency_key)
+        .first()
+    )
+
+
 class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):
     serializer_class = WalletPayoutRequestSerializer
 
@@ -1801,18 +2022,19 @@ class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         idempotency_key = (request.headers.get("Idempotency-Key") or "").strip()
-        if idempotency_key:
-            existing = WalletPayoutRequest.objects.filter(
-                idempotency_key=idempotency_key
-            ).first()
-            if existing:
-                if existing.wallet.user_id != request.user.id:
-                    raise ValidationError("This idempotency key belongs to another request.")
-                return Response(
-                    WalletPayoutRequestSerializer(
-                        existing, context=self.get_serializer_context()
-                    ).data
-                )
+        if not idempotency_key:
+            raise ValidationError(
+                {
+                    "Idempotency-Key": (
+                        "This header is required to create a payout. Generate one "
+                        "value per payout intent and reuse it when retrying."
+                    )
+                }
+            )
+        if len(idempotency_key) > 100:
+            raise ValidationError(
+                {"Idempotency-Key": "Must be 100 characters or fewer."}
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         if request.user.role not in (
@@ -1822,63 +2044,110 @@ class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):
             Role.DRIVER,
         ):
             raise ValidationError("Only marketplace participants can request a payout.")
-        created = False
-        with transaction.atomic():
-            payout_account = serializer.validated_data.get("payout_account")
-            if payout_account:
-                payout_account = BankAccount.objects.select_for_update().get(
-                    pk=payout_account.pk, user=request.user
-                )
-            wallet = wallet_for(request.user, lock=True)
-            payout = None
-            if idempotency_key:
-                payout = (
-                    WalletPayoutRequest.objects.select_related(
-                        "wallet__user", "payout_account__bank"
-                    )
-                    .filter(idempotency_key=idempotency_key)
-                    .first()
-                )
-                if payout and payout.wallet.user_id != request.user.id:
-                    raise ValidationError(
-                        "This idempotency key belongs to another request."
-                    )
 
-            if payout is None:
-                amount = serializer.validated_data["amount"]
-                if wallet.available_balance < amount:
-                    raise ValidationError(
-                        {"wallet": "Insufficient available balance."}
+        amount = serializer.validated_data["amount"]
+        destination = (serializer.validated_data.get("destination") or "").strip()
+        requested_account = serializer.validated_data.get("payout_account")
+        requested_account_id = requested_account.pk if requested_account else None
+
+        def response_for(payout):
+            return Response(
+                WalletPayoutRequestSerializer(
+                    payout, context=self.get_serializer_context()
+                ).data
+            )
+
+        def assert_same_intent(payout):
+            """An idempotency key identifies one exact payout intent."""
+            if payout.wallet.user_id != request.user.id:
+                raise ValidationError(
+                    "This idempotency key belongs to another request."
+                )
+            same_intent = (
+                payout.amount == amount
+                and (payout.destination or "").strip() == destination
+                and payout.payout_account_id == requested_account_id
+            )
+            if not same_intent:
+                raise ValidationError(
+                    {
+                        "Idempotency-Key": (
+                            "This key was already used for a different payout "
+                            "request. Use a new key for a new payout."
+                        )
+                    }
+                )
+
+        # Fast path for a retry. The wallet row lock and partial unique
+        # constraint below are the concurrency backstop.
+        existing = _payout_by_idempotency_key(idempotency_key)
+        if existing:
+            assert_same_intent(existing)
+            return response_for(existing)
+
+        created = False
+        try:
+            with transaction.atomic():
+                payout_account = requested_account
+                if payout_account:
+                    payout_account = BankAccount.objects.select_for_update().get(
+                        pk=payout_account.pk, user=request.user
                     )
-                wallet.available_balance -= amount
-                wallet.held_balance += amount
-                wallet.save(
-                    update_fields=["available_balance", "held_balance", "updated_at"]
-                )
-                payout = serializer.save(
-                    wallet=wallet,
-                    idempotency_key=idempotency_key,
-                )
-                WalletTransaction.objects.create(
-                    wallet=wallet,
-                    transaction_type=WalletTransactionType.PAYOUT_RESERVATION,
-                    amount=amount,
-                    available_delta=-amount,
-                    held_delta=amount,
-                    reference=f"PAYOUT-HOLD-{payout.pk}",
-                    actor=request.user,
-                    description="Funds reserved for manual payout review",
-                )
-                AuditLog.objects.create(
-                    actor=request.user,
-                    action="wallet_payout_requested",
-                    target=str(payout.pk),
-                    detail=(
-                        f"Status: none -> {PayoutStatus.PENDING}; "
-                        f"amount: {amount:.2f} ETB."
-                    ),
-                )
-                created = True
+                wallet = wallet_for(request.user)
+                payout = _payout_by_idempotency_key(idempotency_key)
+                if payout is not None:
+                    assert_same_intent(payout)
+                else:
+                    # Insert the key first: the partial unique constraint is
+                    # what serialises concurrent duplicates, before any money
+                    # moves. A rollback removes the provisional payout row.
+                    payout = serializer.save(
+                        wallet=wallet,
+                        idempotency_key=idempotency_key,
+                    )
+                    wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                    if wallet.available_balance < amount:
+                        raise ValidationError(
+                            {"wallet": "Insufficient available balance."}
+                        )
+                    wallet.available_balance -= amount
+                    wallet.held_balance += amount
+                    wallet.save(
+                        update_fields=[
+                            "available_balance",
+                            "held_balance",
+                            "updated_at",
+                        ]
+                    )
+                    WalletTransaction.objects.create(
+                        wallet=wallet,
+                        transaction_type=WalletTransactionType.PAYOUT_RESERVATION,
+                        amount=amount,
+                        available_delta=-amount,
+                        held_delta=amount,
+                        reference=f"PAYOUT-HOLD-{payout.pk}",
+                        actor=request.user,
+                        description="Funds reserved for manual payout review",
+                    )
+                    AuditLog.objects.create(
+                        actor=request.user,
+                        action="wallet_payout_requested",
+                        target=str(payout.pk),
+                        detail=(
+                            f"Status: none -> {PayoutStatus.PENDING}; "
+                            f"amount: {amount:.2f} ETB."
+                        ),
+                    )
+                    created = True
+        except IntegrityError:
+            # A concurrent request inserted this key after our check. The
+            # unique constraint rolled the reservation back; return the winner.
+            existing = _payout_by_idempotency_key(idempotency_key)
+            if existing is None:
+                raise
+            assert_same_intent(existing)
+            return response_for(existing)
+
         if created:
             notify(
                 roles=(Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN),

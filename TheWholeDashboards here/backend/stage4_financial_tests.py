@@ -33,10 +33,12 @@ def login(email):
             raise
     raise RuntimeError(f"login failed: {email}")
 
-def raw(url, token, method="GET", data=None):
+def raw(url, token, method="GET", data=None, extra_headers=None):
     h = {"Authorization": f"Bearer {token}"}
     if data is not None:
         h["Content-Type"] = "application/json"
+    if extra_headers:
+        h.update(extra_headers)
     req = urllib.request.Request(BASE + url, method=method,
         data=json.dumps(data).encode() if data is not None else None, headers=h)
     try:
@@ -70,7 +72,8 @@ ws_token = login(WS_EMAIL)
 # Reserve: available -> held
 s, body = raw("/api/v1/wallet/payouts/", ws_token, "POST",
               {"amount": "250.00", "destination": "Commercial Bank 1234",
-               "payout_account": None})
+               "payout_account": None},
+              {"Idempotency-Key": "stage4-payout-001"})
 print("B1 payout request:", s, "|", body[:160])
 import re
 pid = json.loads(body)["id"] if s == 201 else None
@@ -87,10 +90,12 @@ tx2 = WalletTransaction.objects.filter(wallet=w4, reference=f"PAYOUT-{pid}").fir
 print("B6 disbursement tx:", bool(tx2), "|", (tx2.transaction_type if tx2 else ""))
 je = __import__("payments.models", fromlist=["FinancialJournalEntry"]).FinancialJournalEntry.objects.filter(source_reference__icontains=str(pid))
 print("B7 journal entries linked:", je.count())
-# Duplicate submission: same idempotency key
+# Identical retry: same key must return the original payout, not reserve again.
 s, body = raw("/api/v1/wallet/payouts/", ws_token, "POST",
-              {"amount": "250.00", "destination": "Commercial Bank 1234"})
-print("B8 duplicate without idempotency rejected or new:", s, "| wallet held:", Wallet.objects.get(user__email=WS_EMAIL).held_balance)
+              {"amount": "250.00", "destination": "Commercial Bank 1234"},
+              {"Idempotency-Key": "stage4-payout-001"})
+print("B8 identical retry returned original:", s == 200, "|", body[:100],
+      "| wallet held:", Wallet.objects.get(user__email=WS_EMAIL).held_balance)
 
 print("=== C. Financial configuration maker-checker ===")
 s, body = raw("/api/v1/payments/financial/configurations/", fm, "POST",

@@ -10,7 +10,7 @@ from chat.models import ChatChannel, Message
 from greenpath.asgi import application
 from notifications.models import Notification
 from notifications.services import notify
-from users.models import AccountStatus, User
+from users.models import AccountStatus, Role, User
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -93,6 +93,32 @@ def test_reopening_a_channel_reuses_the_existing_one(api, farmer, wholesaler):
     second = api.post("/api/v1/chat/channels/", payload, format="json")
     assert first.status_code == 201 and second.status_code == 201
     assert ChatChannel.objects.count() == 1
+
+
+def test_logistics_manager_can_message_approved_driver(api, db):
+    from logistics.models import DriverApplication, DriverProfile
+
+    manager = User.objects.create_user(
+        email="logistics-chat@test.et", password="demo1234", full_name="Logistics Manager",
+        role=Role.LOGISTICS_MANAGER, status=AccountStatus.APPROVED,
+    )
+    driver = User.objects.create_user(
+        email="approved-driver-chat@test.et", password="demo1234", full_name="Approved Driver",
+        role=Role.DRIVER, status=AccountStatus.APPROVED,
+    )
+    profile = DriverProfile.objects.create(user=driver, phone_number="+251900000001")
+    DriverApplication.objects.create(
+        profile=profile, legal_full_name="Approved Driver", status=DriverApplication.Status.APPROVED
+    )
+
+    api.force_authenticate(user=manager)
+    recipients = api.get("/api/v1/chat/recipients/")
+    assert recipients.status_code == 200
+    assert str(driver.pk) in {row["id"] for row in recipients.data["results"]}
+    response = api.post(
+        "/api/v1/chat/channels/", {"participant_ids": [str(driver.pk)]}, format="json"
+    )
+    assert response.status_code == 201, response.data
 
 
 # ---------------------------------------------------------------------------

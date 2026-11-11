@@ -60,6 +60,15 @@ class PasswordResetResponseSerializer(ActionDetailSerializer):
 
 
 class CurrentUserSerializer(serializers.ModelSerializer):
+    """Driver identity payload. The JSON keys keep the DriverApp contract even
+    though the merged platform account authenticates by email and stores one
+    full name instead of first/last."""
+
+    username = serializers.CharField(source="email", read_only=True)
+    first_name = serializers.SerializerMethodField()
+    last_name = serializers.SerializerMethodField()
+    email_verified = serializers.BooleanField(source="is_active", read_only=True)
+
     class Meta:
         model = User
         fields = [
@@ -73,6 +82,13 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             "is_active",
         ]
         read_only_fields = fields
+
+    def get_first_name(self, obj):
+        return (obj.full_name or "").split(" ")[0] if obj.full_name else ""
+
+    def get_last_name(self, obj):
+        parts = (obj.full_name or "").split(" ")
+        return " ".join(parts[1:]) if len(parts) > 1 else ""
 
 
 class DriverRegistrationSerializer(serializers.Serializer):
@@ -166,7 +182,7 @@ class DriverApplicationInputSerializer(serializers.ModelSerializer):
 
 
 class DriverDocumentMetadataSerializer(serializers.ModelSerializer):
-    verified_by = serializers.CharField(source="verified_by.username", read_only=True)
+    verified_by = serializers.CharField(source="verified_by.email", read_only=True)
 
     class Meta:
         model = DriverDocument
@@ -228,7 +244,7 @@ class DriverApplicationSerializer(serializers.ModelSerializer):
                 "from_status": review.from_status,
                 "to_status": review.to_status,
                 "reason": review.reason,
-                "reviewer": review.reviewer.username if review.reviewer else None,
+                "reviewer": review.reviewer.email if review.reviewer else None,
                 "created_at": review.created_at,
             }
             for review in application.review_history.select_related("reviewer")
@@ -236,7 +252,7 @@ class DriverApplicationSerializer(serializers.ModelSerializer):
 
 
 class ReviewerDriverApplicationSerializer(DriverApplicationSerializer):
-    username = serializers.CharField(source="profile.user.username", read_only=True)
+    username = serializers.CharField(source="profile.user.email", read_only=True)
     email = serializers.EmailField(source="profile.user.email", read_only=True)
 
     class Meta(DriverApplicationSerializer.Meta):

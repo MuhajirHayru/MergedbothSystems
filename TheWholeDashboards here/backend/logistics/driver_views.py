@@ -249,7 +249,7 @@ class ReviewerApplicationListView(APIView):
         if search:
             applications = applications.filter(
                 models.Q(legal_full_name__icontains=search)
-                | models.Q(profile__user__username__icontains=search)
+                | models.Q(profile__user__email__icontains=search)
                 | models.Q(profile__user__email__icontains=search)
             )
         paginator = self.pagination_class()

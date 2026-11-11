@@ -31,7 +31,7 @@ interface Ticket {
   id: string; reference: string; subject: string; category: string; priority: string;
   status: string; unanswered: boolean; requester: string; requester_role: string;
   requester_region: string;
-  assigned_to: null | string; related_order_reference: string;
+  assigned_to: null | string; assigned_to_id: null | string; related_order_reference: string;
   created_at: string; answered_at: null | string; messages: TicketMessage[];
 }
 interface RegionSummary { region: string; total: number; answered: number; unanswered: number; }
@@ -41,7 +41,8 @@ interface InboxData {
     answered: number; closed: number; by_category: { category: string; total: number }[];
     by_region: RegionSummary[];
   };
-  pagination: { page: number; page_size: number; total_items: number; has_next: boolean };
+  pagination: { page: number; page_size: number; total_items: number; total_pages?: number; has_next: boolean };
+  assignees?: { id: string; full_name: string; role: string }[];
   tickets: Ticket[];
 }
 
@@ -50,8 +51,8 @@ export const SupportManagementView: React.FC<{ staffView?: boolean }> = ({ staff
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [filters, setFilters] = useState<{ status: string; category: string; unanswered: boolean }>({
-    status: '', category: '', unanswered: false,
+  const [filters, setFilters] = useState<{ status: string; category: string; priority: string; assigned: string; requester: string; unanswered: boolean }>({
+    status: '', category: '', priority: '', assigned: '', requester: '', unanswered: false,
   });
   const [regionFilter, setRegionFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -70,6 +71,9 @@ export const SupportManagementView: React.FC<{ staffView?: boolean }> = ({ staff
       const params: Record<string, unknown> = { page, page_size: 10 };
       if (filters.status) params.status = filters.status;
       if (filters.category) params.category = filters.category;
+      if (filters.priority) params.priority = filters.priority;
+      if (filters.assigned) params.assigned = filters.assigned;
+      if (filters.requester.trim()) params.requester = filters.requester.trim();
       if (filters.unanswered) params.unanswered = 'true';
       if (regionFilter) params.region = regionFilter;
       if (dateFrom) params.created_from = dateFrom;
@@ -213,9 +217,20 @@ export const SupportManagementView: React.FC<{ staffView?: boolean }> = ({ staff
             <option value="">All categories</option>
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+          <select aria-label="Filter tickets by priority" value={filters.priority} onChange={(e) => setFilters({ ...filters, priority: e.target.value })}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5">
+            <option value="">All priorities</option>
+            {PRIORITIES.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+          </select>
+          <select aria-label="Filter ticket assignment" value={filters.assigned} onChange={(e) => setFilters({ ...filters, assigned: e.target.value })}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5">
+            <option value="">All assignments</option><option value="me">Assigned to me</option>
+          </select>
+          <input aria-label="Search requester" value={filters.requester} onChange={(e) => setFilters({ ...filters, requester: e.target.value })}
+            placeholder="Search requester" className="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5" />
+          <label htmlFor="unanswered-only" className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
             <input type="checkbox" id="unanswered-only" checked={filters.unanswered} onChange={(e) => setFilters({ ...filters, unanswered: e.target.checked })} />
-            <label htmlFor="unanswered-only" className="text-xs text-slate-600 dark:text-slate-300">Unanswered only</label>
+            <span>Unanswered only</span>
           </label>
           <select aria-label="Filter tickets by requester region" value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}
             className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5">
@@ -234,10 +249,10 @@ export const SupportManagementView: React.FC<{ staffView?: boolean }> = ({ staff
             className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold ${dateFrom === new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10) ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}>
             Recent (7 days)
           </button>
-          {(regionFilter || dateFrom || dateTo) && (
-            <button onClick={() => { setRegionFilter(''); setDateFrom(''); setDateTo(''); }}
+          {(regionFilter || dateFrom || dateTo || filters.status || filters.category || filters.priority || filters.assigned || filters.requester || filters.unanswered) && (
+            <button onClick={() => { setRegionFilter(''); setDateFrom(''); setDateTo(''); setFilters({ status: '', category: '', priority: '', assigned: '', requester: '', unanswered: false }); }}
               className="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-semibold">
-              Clear all
+              Clear filters
             </button>
           )}
         </div>
@@ -431,12 +446,15 @@ export const SupportManagementView: React.FC<{ staffView?: boolean }> = ({ staff
                                     </button>
                                   </>
                                 )}
-                                {!t.assigned_to && (
-                                  <button onClick={(e) => { e.stopPropagation(); void act(t.id, { action: 'assign', assignee_id: 'me' }); }} disabled={busy}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold border-slate-300 dark:border-slate-600 disabled:opacity-60">
-                                    <UserCheck className="w-3.5 h-3.5" /> Assign to me
-                                  </button>
-                                )}
+                                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300" onClick={(e) => e.stopPropagation()}>
+                                  <UserCheck className="w-3.5 h-3.5" /> Assign / reassign
+                                  <select aria-label={`Assign ${t.reference}`} value={t.assigned_to_id || ''} disabled={busy}
+                                    onChange={(e) => { if (e.target.value) void act(t.id, { action: 'assign', assignee_id: e.target.value }); }}
+                                    className="max-w-48 rounded-lg border border-slate-300 bg-white px-2 py-1.5 dark:border-slate-600 dark:bg-slate-800">
+                                    <option value="">Choose support agent</option>
+                                    {(data.assignees || []).map((agent) => <option key={agent.id} value={agent.id}>{agent.full_name} · {agent.role.replace(/_/g, ' ').toLowerCase()}</option>)}
+                                  </select>
+                                </label>
                                 <button onClick={(e) => { e.stopPropagation(); void act(t.id, { action: 'priority', priority: t.priority === 'URGENT' ? 'NORMAL' : 'URGENT' }); }} disabled={busy}
                                   className="px-3 py-1.5 rounded-lg border text-xs font-semibold border-slate-300 dark:border-slate-600 disabled:opacity-60">
                                   {t.priority === 'URGENT' ? 'Normal priority' : 'Mark urgent'}

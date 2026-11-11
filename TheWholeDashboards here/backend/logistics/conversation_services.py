@@ -40,13 +40,13 @@ def role_label(user):
 
 def _display_name(user):
     full_name = f"{user.first_name} {user.last_name}".strip()
-    return full_name or user.username
+    return full_name or user.email
 
 
 def conversation_participant(user):
     return {
         "id": user.pk,
-        "username": user.username,
+        "username": user.email,
         "display_name": _display_name(user),
         "role": user.role,
         "role_label": role_label(user),
@@ -166,7 +166,7 @@ def serialize_conversation(conversation, user):
         message = messages[0]
         last_message = {
             "id": message.pk,
-            "sender_username": message.sender.username,
+            "sender_username": message.sender.email,
             "body": message.body,
             "created_at": message.created_at,
         }

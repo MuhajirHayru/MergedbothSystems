@@ -90,7 +90,13 @@ export interface ApiShipmentDetails {
   delivery_fee_proposal_version: number;
   authorized: boolean;
   pickup_region?: string;
+  pickup_zone?: string | null;
+  pickup_wereda?: string | null;
+  pickup_kebele?: string | null;
   destination_region?: string;
+  destination_zone?: string | null;
+  destination_wereda?: string | null;
+  destination_kebele?: string | null;
   pickup_region_name?: string;
   pickup_zone_name?: string | null;
   pickup_wereda_name?: string | null;

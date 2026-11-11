@@ -15,7 +15,7 @@ from payments.models import (
     WalletTransactionType,
 )
 from products.models import ProductStatus
-from registrations.models import AdministrativeLocation, LocationLevel
+from registrations.models import AdministrativeLocation, LocationLevel, UserRegistration
 
 pytestmark = pytest.mark.django_db
 
@@ -395,6 +395,65 @@ def test_shipment_details_require_two_party_confirmation_and_hide_addresses(
     details.refresh_from_db()
     assert details.buyer_confirmed_revision == details.seller_confirmed_revision == 1
     assert details.authorized_at is None
+
+
+def test_shipment_uses_registered_seller_pickup_and_buyer_destination(
+    api, order, wholesaler, farmer
+):
+    region, zone = _shipment_location_tree()
+    UserRegistration.objects.create(
+        user=farmer, location=zone, business_address="Farm gate, route 4"
+    )
+    UserRegistration.objects.create(
+        user=wholesaler, location=region, business_address="Warehouse bay 2"
+    )
+    url = f"/api/v1/orders/{order.pk}/shipment-details/"
+    api.force_authenticate(user=wholesaler)
+
+    defaults = api.get(url)
+    assert defaults.status_code == 200
+    assert defaults.data["exists"] is False
+    assert defaults.data["registered_addresses"]["pickup"]["location_ids"]["zone"] == str(zone.pk)
+    assert "address_line" not in defaults.data["registered_addresses"]["pickup"]
+    assert defaults.data["registered_addresses"]["destination"]["address_line"] == "Warehouse bay 2"
+
+    payload = _shipment_details_payload(region, zone)
+    payload["pickup_address_line"] = ""
+    payload["destination_address_line"] = "Warehouse bay 2"
+    saved = api.put(url, payload, format="json")
+    assert saved.status_code == 200, saved.data
+    details = OrderShipmentDetails.objects.get(order=order)
+    assert details.pickup_address_line == "Farm gate, route 4"
+    assert details.destination_address_line == "Warehouse bay 2"
+    assert details.pickup_zone_id == zone.pk
+
+    api.force_authenticate(user=farmer)
+    seller_view = api.get(url)
+    assert seller_view.data["registered_addresses"]["pickup"]["address_line"] == "Farm gate, route 4"
+    assert "address_line" not in seller_view.data["registered_addresses"]["destination"]
+
+
+def test_shipment_rejects_route_that_conflicts_with_registered_party(
+    api, order, wholesaler, farmer
+):
+    region, zone = _shipment_location_tree()
+    other_region = AdministrativeLocation.objects.create(
+        source_id="registered-route-other-region", name="Other Region", level=LocationLevel.REGION
+    )
+    UserRegistration.objects.create(user=farmer, location=region, business_address="Farm gate")
+    UserRegistration.objects.create(user=wholesaler, location=region, business_address="Warehouse")
+    payload = _shipment_details_payload(region, zone)
+    payload["pickup_address_line"] = ""
+    payload["pickup_zone"] = None
+    payload["destination_region"] = str(other_region.pk)
+    payload["destination_address_line"] = "Warehouse"
+    api.force_authenticate(user=wholesaler)
+
+    response = api.put(f"/api/v1/orders/{order.pk}/shipment-details/", payload, format="json")
+
+    assert response.status_code == 400
+    assert "destination_region" in response.data.get("error", {})
+    assert not OrderShipmentDetails.objects.filter(order=order).exists()
 
 
 def test_shipment_detail_change_invalidates_both_confirmations(

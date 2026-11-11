@@ -162,7 +162,12 @@ def _resolve_assignee(request, raw):
     if raw == "me":
         return request.user if request.user.role in STAFF_ROLES else None
     try:
-        return get_user_model().objects.filter(pk=raw, role__in=STAFF_ROLES).first()
+        return get_user_model().objects.filter(
+            pk=raw,
+            role__in=STAFF_ROLES,
+            status="APPROVED",
+            is_active=True,
+        ).first()
     except (DjangoValidationError, ValueError):
         return None
 
@@ -350,6 +355,16 @@ class SupportInboxView(APIView):
             "success": True,
             "summary": summary,
             "pagination": pagination,
+            "assignees": [
+                {**row, "id": str(row["id"])}
+                for row in User.objects.filter(
+                    role__in=STAFF_ROLES,
+                    status="APPROVED",
+                    is_active=True,
+                )
+                .order_by("full_name", "id")
+                .values("id", "full_name", "role")
+            ],
             "tickets": [_ticket_row(t, region_by_user.get(t.requester_id)) for t in page],
         })
 

@@ -1,626 +1,100 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowRight, ArrowUpRight, Check, Mail, MapPin, Phone, Sprout } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { apiClient } from '../../services/apiClient';
-import {
-  TrendingUp,
-  ShieldCheck,
-  Truck,
-  Leaf,
-  Users,
-  ArrowRight,
-  Sparkles,
-  CheckCircle2,
-  MapPin,
-  Building2,
-  DollarSign,
-  ChevronDown,
-  Lock,
-  Phone,
-  Mail,
-  HelpCircle,
-  Store,
-  Star,
-  ChevronRight,
-  Search,
-  Package,
-  Layers,
-  Award,
-  Zap,
-} from 'lucide-react';
+
+const photos = {
+  farmer: '/images/landing-hero-farmer.png',
+  vegetables: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=1000&q=85',
+  fruits: 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1000&q=85',
+  grains: 'https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?auto=format&fit=crop&w=1000&q=85',
+};
 
 export const LandingPage: React.FC = () => {
-  const { setActiveView, setAiModalOpen, language, platformConfig, isAuthenticated } = useApp();
+  const { platformConfig, setActiveView } = useApp();
   const navigate = useNavigate();
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
-  const [heroSearch, setHeroSearch] = useState('');
-
-  const [publicStats, setPublicStats] = useState<null | { stats: { total_users: number; total_regions: number; total_drivers: number } }>(null);
-  useEffect(() => {
-    fetch('/api/v1/auth/public-stats/')
-      .then((r) => r.json())
-      .then((d) => { if (d.success) setPublicStats(d); })
-      .catch(() => undefined);
-  }, []);
-
-  const [landingBanners, setLandingBanners] = useState<{ id: number; title: string; description: string; image_url: string | null; destination_url: string }[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    apiClient.get('/auth/banners/')
-      .then((res) => { if (!cancelled) setLandingBanners(res.data?.banners ?? []); })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
-  }, []);
-
-  const content = platformConfig?.websiteContent || {
-    platformTitle: 'GreenPath Farm to Market AI',
-    amharicTitle: 'ግሪንፓዝ የግብርና ገበያ AI',
-    oromoTitle: 'GreenPath Gabaa Qonnaa AI',
-    heroHeadline: 'Direct Farm-to-Market Exchange for Ethiopia',
-    heroSubtitle: 'Trade fresh farm produce directly with accredited farming cooperatives, schedule refrigerated freight, and settle securely through Chapa Escrow.',
-    aboutDescription: '',
-    contactEmail: 'support@greenpath.et',
-    contactPhone: '+251 900 000 000',
-    contactOffice: 'Addis Ababa, Ethiopia',
-    faqItems: [],
+  const content = platformConfig?.websiteContent;
+  const brand = 'GreenPath';
+  const shortBrand = 'greenpath';
+  const go = (view: 'login' | 'register') => {
+    setActiveView(view);
+    navigate(`/${view}`);
   };
-
-  const handleHeroSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (heroSearch.trim()) {
-      setActiveView('marketplace');
-      navigate(`/marketplace?search=${encodeURIComponent(heroSearch.trim())}`);
-    } else {
-      setActiveView('marketplace');
-      navigate('/marketplace');
-    }
-  };
-
-  const commodityTickers = [
-    { name: 'Red Shallots (Meki)', price: '4,200 ETB/qt', change: '+8.4%', up: true },
-    { name: 'Export Avocado (Sidama)', price: '95 ETB/kg', change: '+12.1%', up: true },
-    { name: 'Highland Tomatoes (Mojo)', price: '1,850 ETB/crate', change: '+3.2%', up: true },
-    { name: 'White Teff (Debre Markos)', price: '8,400 ETB/qt', change: '+1.5%', up: true },
-    { name: 'Yirgacheffe Coffee G1', price: '380 ETB/kg', change: '+5.0%', up: true },
-    { name: 'Table Potatoes (Shashemene)', price: '2,600 ETB/qt', change: '-2.1%', up: false },
-  ];
 
   return (
-    <div className="space-y-16 pb-20">
-      {/* Live Agricultural Commodity Ticker */}
-      <div className="bg-[#0F172A] text-white py-2 px-4 border-b border-emerald-900/60 overflow-x-auto scrollbar-none">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 text-xs whitespace-nowrap min-w-max">
-          <div className="flex items-center gap-1.5 text-emerald-400 font-bold uppercase tracking-wider text-[10px] shrink-0">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Ethiopian Commodity Ticker</span>
-          </div>
-          <div className="flex items-center gap-6 divide-x divide-slate-800 text-xs">
-            {commodityTickers.map((ticker, idx) => (
-              <div key={idx} className="flex items-center gap-2 pl-4 first:pl-0">
-                <span className="text-slate-300 font-medium">{ticker.name}</span>
-                <span className="font-mono font-bold text-white">{ticker.price}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${ticker.up ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
-                  {ticker.change}
-                </span>
-              </div>
-            ))}
+    <div className="min-h-screen overflow-hidden bg-[#fbfaf6] font-sans text-[#163c2c] selection:bg-[#cde7bd]">
+      <header className="relative z-20 border-b border-[#163c2c]/10 bg-[#fbfaf6]">
+        <div className="mx-auto flex h-[76px] max-w-[1320px] items-center justify-between px-5 sm:px-9 lg:px-14">
+          <a href="/" onClick={(e) => { e.preventDefault(); setActiveView('landing'); navigate('/'); }} aria-label={`${brand} home`} className="flex items-center">
+            <span className="text-[19px] font-extrabold tracking-[-.06em]">{shortBrand}</span>
+          </a>
+          <div className="flex items-center gap-2.5 sm:gap-4">
+            <button onClick={() => go('login')} className="rounded-[4px] px-4 py-2.5 text-[12px] font-semibold hover:bg-[#edf2e9]">Login</button>
+            <button onClick={() => go('register')} className="rounded-[4px] bg-[#1e6848] px-4 py-2.5 text-[12px] font-bold text-white transition hover:bg-[#17553a]">Register</button>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Hero Section */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-          <div className="lg:col-span-7 space-y-6">
-            <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-3.5 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Verified Ethiopian Agricultural E-Commerce & Freight Rail</span>
-            </div>
-
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100 leading-[1.12]">
-              Direct Farm-to-Market Exchange for <span className="text-[#15803D] dark:text-emerald-400">Ethiopian Producers</span>
-            </h1>
-
-            <p className="text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
-              Connect directly with verified agricultural cooperatives in Meki, Hawassa, Mojo, and Ambo. Procure farm-gate harvests, schedule refrigerated Isuzu/Sino truck haulage, and settle safely via Chapa Escrow.
-            </p>
-
-            {/* Part 23 — active promotional banners from the CMS */}
-            {landingBanners.length > 0 && (
-              <div className="space-y-2 pt-2 max-w-2xl">
-                {landingBanners.map((b) => (
-                  <a
-                    key={b.id}
-                    href={b.destination_url || '#'}
-                    className="block p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/30 hover:border-[#15803D] transition-colors"
-                  >
-                    <div className="text-sm font-bold text-emerald-800 dark:text-emerald-300">{b.title}</div>
-                    {b.description && <div className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{b.description}</div>}
-                  </a>
-                ))}
-              </div>
-            )}
-
-            {/* Instant Search Bar with Commodity Chips */}
-            <form onSubmit={handleHeroSearchSubmit} className="pt-2 max-w-xl space-y-2.5">
-              <div className="relative flex items-center">
-                <Search className="w-5 h-5 text-slate-400 absolute left-4 pointer-events-none" />
-                <input
-                  type="text"
-                  value={heroSearch}
-                  onChange={(e) => setHeroSearch(e.target.value)}
-                  placeholder="Search produce (e.g. Avocado, Tomatoes, Teff, Shallots)..."
-                  className="w-full pl-12 pr-28 py-3.5 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl shadow-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#15803D]"
-                />
-                <button
-                  type="submit"
-                  className="absolute right-2 px-5 py-2 bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold rounded-xl shadow-xs transition-all"
-                >
-                  Search
-                </button>
-              </div>
-
-              {/* Popular quick-chips */}
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-[11px] text-slate-400 font-semibold mr-1">Trending:</span>
-                {[
-                  { label: '🥑 Hass Avocado', q: 'Avocado' },
-                  { label: '🍅 Meki Tomatoes', q: 'Tomato' },
-                  { label: '🧅 Red Shallots', q: 'Onion' },
-                  { label: '🌾 Yirgacheffe Coffee', q: 'Coffee' },
-                  { label: '🥔 Highland Potatoes', q: 'Potato' },
-                ].map((chip) => (
-                  <button
-                    key={chip.q}
-                    type="button"
-                    onClick={() => {
-                      setActiveView('marketplace');
-                      navigate(`/marketplace?search=${encodeURIComponent(chip.q)}`);
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 text-slate-700 dark:text-slate-300 text-[11px] font-medium transition-colors"
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-            </form>
-
-            {/* Primary Action Buttons */}
-            <div className="flex flex-wrap gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setActiveView('marketplace');
-                  navigate('/marketplace');
-                }}
-                className="flex items-center gap-2 px-6 py-3.5 bg-[#15803D] hover:bg-[#166534] text-white font-bold text-xs rounded-xl transition-all shadow-md hover:scale-105"
-              >
-                <span>Browse Produce Catalog</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveView('register');
-                  navigate('/register');
-                }}
-                className="flex items-center gap-2 px-6 py-3.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl transition-colors shadow-xs"
-              >
-                <span>Register Cooperative / Business</span>
-              </button>
-            </div>
-
-            {/* Trust Highlights */}
-            <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800 text-xs">
-              <div>
-                <div className="font-bold text-base text-slate-900 dark:text-slate-100 font-mono">
-                  100%
-                </div>
-                <div className="text-slate-500 text-[11px]">Chapa Escrow Protected</div>
-              </div>
-              <div>
-                <div className="font-bold text-base text-slate-900 dark:text-slate-100 font-mono">
-                  {publicStats ? publicStats.stats.total_users : '1,200+'}
-                </div>
-                <div className="text-slate-500 text-[11px]">Accredited Producers</div>
-              </div>
-              <div>
-                <div className="font-bold text-base text-slate-900 dark:text-slate-100 font-mono">
-                  {publicStats ? publicStats.stats.total_regions : '15'}
-                </div>
-                <div className="text-slate-500 text-[11px]">Ethiopian Trade Corridors</div>
-              </div>
+      <main>
+        <section className="mx-auto grid min-h-[620px] max-w-[1320px] items-center gap-10 px-5 py-12 sm:px-9 sm:py-16 lg:min-h-[680px] lg:grid-cols-[.95fr_1.05fr] lg:gap-16 lg:px-14 lg:py-20">
+          <div className="relative z-10 max-w-[570px]">
+            <h1 className="text-[clamp(3rem,6vw,5.2rem)] font-semibold leading-[1.04] tracking-[-.07em]">Increase farmers’ wealth by connecting directly to buyers.</h1>
+            <p className="mt-6 max-w-[495px] text-[15px] leading-7 text-[#65766b] sm:text-[17px] sm:leading-8">GreenPath brings farmers and buyers together directly, helping farmers reach better markets and grow their income.</p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <button onClick={() => go('register')} className="rounded-[4px] bg-[#1e6848] px-5 py-3 text-[12px] font-bold text-white shadow-sm transition hover:bg-[#17553a]">Register <ArrowRight className="ml-1 inline" size={13} /></button>
             </div>
           </div>
-
-          {/* Hero Visual Card Showcase */}
-          <div className="lg:col-span-5 space-y-4">
-            <div className="relative rounded-3xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
-                    Live Farm Gate Listings
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                  Escrow Verified
-                </span>
-              </div>
-
-              {/* Sample Produce Cards */}
-              <div className="space-y-3">
-                <div
-                  onClick={() => {
-                    setActiveView('marketplace');
-                    navigate('/marketplace?search=Avocado');
-                  }}
-                  className="p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-emerald-500 cursor-pointer transition-all flex items-center justify-between gap-3 group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-bold flex items-center justify-center text-lg shrink-0">
-                      🥑
-                    </div>
-                    <div>
-                      <div className="font-bold text-xs text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 transition-colors">
-                        Export Hass Avocado (አቮካዶ)
-                      </div>
-                      <div className="text-[11px] text-slate-500">Sidama Cooperative · Grade 1 Export</div>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400">95 ETB/kg</div>
-                    <div className="text-[10px] text-slate-400">Available: 40 crates</div>
-                  </div>
-                </div>
-
-                <div
-                  onClick={() => {
-                    setActiveView('marketplace');
-                    navigate('/marketplace?search=Tomato');
-                  }}
-                  className="p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-emerald-500 cursor-pointer transition-all flex items-center justify-between gap-3 group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 font-bold flex items-center justify-center text-lg shrink-0">
-                      🍅
-                    </div>
-                    <div>
-                      <div className="font-bold text-xs text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 transition-colors">
-                        Highland Red Tomatoes (ቲማቲም)
-                      </div>
-                      <div className="text-[11px] text-slate-500">Meki Farming Union · Grade 1 Domestic</div>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400">1,850 ETB/crate</div>
-                    <div className="text-[10px] text-slate-400">Available: 60 crates</div>
-                  </div>
-                </div>
-
-                <div
-                  onClick={() => {
-                    setActiveView('marketplace');
-                    navigate('/marketplace?search=Onion');
-                  }}
-                  className="p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-emerald-500 cursor-pointer transition-all flex items-center justify-between gap-3 group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-bold flex items-center justify-center text-lg shrink-0">
-                      🧅
-                    </div>
-                    <div>
-                      <div className="font-bold text-xs text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 transition-colors">
-                        Cured Red Shallot Onions (ሽንኩርት)
-                      </div>
-                      <div className="text-[11px] text-slate-500">Ziway Agricultural Union · Grade 2</div>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400">4,200 ETB/qt</div>
-                    <div className="text-[10px] text-slate-400">Available: 40 quintals</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Express Delivery Integration Note */}
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-medium">
-                  <Truck className="w-4 h-4 text-emerald-600" />
-                  <span>Freight fleet ready for Mojo-Addis Expressway dispatch</span>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">~3.5h ETA</span>
-              </div>
+          <div className="relative min-h-[390px] overflow-hidden rounded-[6px] bg-[#dae5d3] sm:min-h-[490px] lg:min-h-[520px]">
+            <img src={photos.farmer} alt="Farmer harvesting fresh produce in the field" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover object-center saturate-[1.24] contrast-[1.04]" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#163c2c]/25 via-transparent to-transparent" />
+            <div className="absolute bottom-5 left-5 flex items-center gap-3 rounded-[4px] border border-white/60 bg-[#fbfaf6]/95 px-4 py-3 shadow-lg backdrop-blur sm:bottom-7 sm:left-7">
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-[#e4efdc] text-[#32734d]"><Sprout size={17} /></span>
+              <span><span className="block text-[9px] font-bold uppercase tracking-[.13em] text-[#7d8a7d]">Freshly connected</span><span className="mt-0.5 block text-[13px] font-semibold">Closer to the source</span></span>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* SECTION: Featured Produce Categories */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">
-            Agricultural Commodities
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-            Browse Ethiopia's Key Produce Categories
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Certified varieties inspected for post-harvest moisture, size, and shelf stability
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {[
-            { name: 'Vegetables', am: 'አትክልት', icon: '🥕', count: '48 Listings' },
-            { name: 'Fruits', am: 'ፍራፍሬ', icon: '🥑', count: '32 Listings' },
-            { name: 'Grains', am: 'እህል / ጥራጥሬ', icon: '🌾', count: '64 Listings' },
-            { name: 'Pulses', am: 'የጥራጥሬ ሰብሎች', icon: '🫘', count: '28 Listings' },
-            { name: 'Spices', am: 'ቅመማ ቅመም', icon: '🌶️', count: '19 Listings' },
-            { name: 'Root Crops', am: 'ስራስር', icon: '🥔', count: '24 Listings' },
-          ].map((cat) => (
-            <button
-              key={cat.name}
-              onClick={() => {
-                setActiveView('marketplace');
-                navigate(`/marketplace?search=${encodeURIComponent(cat.name)}`);
-              }}
-              className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#15803D] hover:shadow-lg transition-all text-center space-y-2 group"
-            >
-              <div className="text-3xl group-hover:scale-110 transition-transform">{cat.icon}</div>
-              <div className="font-bold text-xs text-slate-900 dark:text-slate-100 group-hover:text-[#15803D] transition-colors">
-                {cat.name}
-              </div>
-              <div className="text-[10px] text-slate-400 font-medium">{cat.am}</div>
-              <div className="text-[10px] text-emerald-600 font-semibold">{cat.count}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* SECTION: 4-Step Escrow Secured Workflow */}
-      <div className="bg-slate-100 dark:bg-slate-900/60 py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-          <div className="text-center max-w-2xl mx-auto">
-            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">
-              End-to-End Escrow Protection
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-              How GreenPath Protects Every Cargo Transaction
-            </h2>
+        <section id="how-it-works" className="mx-auto max-w-[1320px] px-5 py-20 sm:px-9 sm:py-28 lg:px-14">
+          <div className="grid gap-10 lg:grid-cols-[1.05fr_.75fr] lg:items-end">
+            <div><p className="mb-4 text-[9px] font-bold uppercase tracking-[.16em] text-[#477c54]">A simpler way to connect</p><h2 className="max-w-[600px] text-[clamp(2rem,3.7vw,3.1rem)] font-semibold leading-[1.12] tracking-[-.05em]">From growing to selling.<br/>Without the guesswork.</h2></div>
+            <p className="max-w-[390px] pb-1 text-[12px] leading-5 text-[#748077] lg:justify-self-end">One place for the people who grow our food and the people who need it.</p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {[
-              {
-                step: '01',
-                title: 'Farm Gate Listing',
-                desc: 'Cooperative verifies harvest volume, grade specifications, and transport corridor.',
-                icon: Leaf,
-              },
-              {
-                step: '02',
-                title: 'Escrow Commitment',
-                desc: 'Wholesaler secures payment into Chapa Escrow. Funds are safely locked prior to dispatch.',
-                icon: ShieldCheck,
-              },
-              {
-                step: '03',
-                title: 'Carrier Telemetry',
-                desc: 'Accredited Isuzu/Sino driver confirms pickup via 4-digit PIN and shares live GPS transit.',
-                icon: Truck,
-              },
-              {
-                step: '04',
-                title: 'Quality Sign-Off',
-                desc: 'Upon depot inspection and delivery PIN verification, funds instantly disburse to the farmer wallet.',
-                icon: Award,
-              },
-            ].map((st) => (
-              <div
-                key={st.step}
-                className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 relative overflow-hidden"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-2xl font-black text-emerald-600/30 dark:text-emerald-400/20">
-                    {st.step}
-                  </span>
-                  <st.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">{st.title}</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{st.desc}</p>
-              </div>
-            ))}
+          <div className="mt-14 grid gap-8 border-t border-[#dfe4da] pt-7 sm:grid-cols-3 sm:gap-6">
+            {[['01', 'Find your people', 'Farmers list their harvest. Buyers discover fresh produce and connect at the source.'], ['02', 'Make a fair connection', 'Explore products, discuss your needs, and choose what works for you.'], ['03', 'Keep your order in view', 'Follow order updates and delivery progress with live logistics tracking on our roadmap.']].map(([n, title, desc]) => <article key={n} className="border-t border-[#e0e4dc] pt-5 pr-4"><span className="text-[16px] font-medium text-[#236744]">{n}</span><h3 className="mt-3 text-[14px] font-semibold tracking-[-.02em]">{title}</h3><p className="mt-2 max-w-[330px] text-[11px] leading-[1.55] text-[#7a857c]">{desc}</p></article>)}
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* SECTION: Role Workspaces Showcase */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-widest">
-            Dedicated Workspaces
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-            Built Specifically for Every Agribusiness Actor
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[
-            {
-              role: 'farmer' as const,
-              title: 'Farmers & Cooperatives',
-              desc: 'Publish harvests, manage wholesale purchase commitments, and withdraw directly to CBE or Telebirr.',
-              cta: 'Farmer Portal',
-              badge: 'Farm Gate',
-            },
-            {
-              role: 'wholesaler' as const,
-              title: 'Commercial Wholesalers',
-              desc: 'Procure bulk produce with escrow protection, manage central warehouse bays, and calculate corridor freight.',
-              cta: 'Wholesaler Console',
-              badge: 'Bulk Trading',
-            },
-            {
-              role: 'retailer' as const,
-              title: 'Municipal Grocers',
-              desc: 'Restock fresh store supplies directly from terminal depots with mandatory delivery quality inspection sign-off.',
-              cta: 'Retail Restock Hub',
-              badge: 'Urban Grocers',
-            },
-            {
-              role: 'driver' as const,
-              title: 'Freight Carrier Fleet',
-              desc: 'Bid on cargo hauls, verify pickup & delivery with 4-digit PINs, and receive instant freight payouts.',
-              cta: 'Carrier Console',
-              badge: 'Expressway Haulage',
-            },
-          ].map((card) => (
-            <div
-              key={card.role}
-              className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs flex flex-col justify-between"
-            >
-              <div className="space-y-3">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                  {card.badge}
-                </span>
-                <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                  {card.title}
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  {card.desc}
-                </p>
-              </div>
-
-              <button
-                onClick={() => {
-                  if (isAuthenticated) {
-                    if (card.role === 'farmer') setActiveView('farmer_dashboard');
-                    else if (card.role === 'wholesaler') setActiveView('wholesaler_dashboard');
-                    else if (card.role === 'retailer') setActiveView('retailer_dashboard');
-                    else setActiveView('driver_dashboard');
-                  } else {
-                    setActiveView('login');
-                    navigate('/login');
-                  }
-                }}
-                className="mt-6 flex items-center gap-1.5 text-xs font-bold text-[#15803D] dark:text-emerald-400 hover:underline"
-              >
-                <span>{card.cta}</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SECTION: Frequently Asked Questions */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Frequently Asked Questions
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Common questions regarding Chapa Escrow, driver accreditation, and produce inspection
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          {[
-            {
-              q: 'How does Chapa Escrow guarantee payment for farmers?',
-              a: 'When a wholesaler or retailer places an order, the purchase funds are deposited into a secure Chapa Escrow vault. The funds cannot be withdrawn by the buyer. Once the cargo arrives and the delivery PIN is authenticated after quality inspection, the funds are automatically released to the farmer wallet.',
-            },
-            {
-              q: 'How are commercial truck drivers accredited on GreenPath?',
-              a: 'All carriers submit commercial driving licenses, vehicle plate registrations (Isuzu FSR, Sino Truck, Reefer), and undergo regional Ministry of Agriculture logistics clearance. Drivers must share live corridor telemetry during active shipments.',
-            },
-            {
-              q: 'How is farm location privacy protected?',
-              a: 'Exact GPS farm plot boundaries and private farm gate coordinates remain hidden on public search pages. Only the general administrative zone (e.g., East Shewa, Sidama) and recommended transport corridor are displayed.',
-            },
-            {
-              q: 'What languages does the platform support?',
-              a: 'GreenPath is fully localized in English, Amharic (አማርኛ), and Afaan Oromoo, including the AI Agricultural Advisor modal for voice and text commodity inquiries.',
-            },
-          ].map((faq, idx) => {
-            const isOpen = openFaqIndex === idx;
-            return (
-              <div
-                key={idx}
-                className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden"
-              >
-                <button
-                  onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                  className="w-full p-4 text-left font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 flex items-center justify-between gap-4"
-                >
-                  <span>{faq.q}</span>
-                  <ChevronDown
-                    className={`w-4 h-4 text-slate-400 transition-transform ${
-                      isOpen ? 'rotate-180 text-emerald-600' : ''
-                    }`}
-                  />
-                </button>
-                {isOpen && (
-                  <div className="px-4 pb-4 text-xs text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-3">
-                    {faq.a}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Modern Agri-Tech Footer */}
-      <footer className="border-t border-slate-200 dark:border-slate-800 pt-12 text-xs text-slate-500 dark:text-slate-400">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 mb-8">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-[#15803D] text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                GP
-              </div>
-              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                {content.platformTitle}
-              </span>
-            </div>
-            <p className="text-[11px] leading-relaxed">
-              Empowering Ethiopian agriculture through artificial intelligence, direct cooperative connections, and guaranteed Chapa Escrow settlement.
-            </p>
+        <section className="bg-[#fbfaf6] py-20 sm:py-24">
+          <div className="mx-auto max-w-[1320px] px-5 sm:px-9 lg:px-14">
+            <div><p className="mb-3 text-[9px] font-bold uppercase tracking-[.16em] text-[#477c54]">The marketplace</p><h2 className="text-[clamp(2rem,3.7vw,3.1rem)] font-semibold leading-[1.12] tracking-[-.05em]">Fresh finds. Direct from the farm.</h2><p className="mt-3 text-[11px] text-[#7a857c]">Discover what’s growing, and connect with the people behind it.</p></div>
+            <div className="mt-8 grid gap-4 sm:grid-cols-3">{[['Fresh vegetables', 'Tomatoes, leafy greens & everyday goodness', photos.vegetables], ['Seasonal fruits', 'Naturally sweet, picked with care', photos.fruits], ['Grains & staples', 'Teff, maize & the essentials you trust', photos.grains]].map(([title, sub, image]) => <article key={title} className="rounded-[5px] bg-[#f8f9f4] p-2"><div className="relative aspect-[1.75] overflow-hidden rounded-[4px] bg-[#d8e3d2]"><img src={image} alt={title} loading="lazy" className="h-full w-full object-cover" /></div><h3 className="mt-3 text-[11px] font-semibold">{title}</h3><p className="mt-1 text-[9px] text-[#7e887e]">{sub}</p></article>)}</div>
           </div>
+        </section>
 
-          <div>
-            <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100 mb-2">Marketplace & Corridors</h4>
-            <ul className="space-y-1.5 text-[11px]">
-              <li><button onClick={() => { setActiveView('marketplace'); navigate('/marketplace'); }} className="hover:underline">Browse Produce Listings</button></li>
-              <li><button onClick={() => { setActiveView('reports_regional'); navigate('/reports/regional'); }} className="hover:underline">Regional Commodity Prices</button></li>
-              <li><button onClick={() => { setActiveView('register'); navigate('/register'); }} className="hover:underline">Cooperative Accreditation</button></li>
-            </ul>
+        <section className="bg-[#173e2e] text-white">
+          <div className="mx-auto grid max-w-[1320px] items-center gap-12 px-5 py-20 sm:px-9 sm:py-24 lg:grid-cols-[.9fr_1.1fr] lg:px-14 lg:py-28">
+            <div><p className="mb-4 text-[9px] font-bold uppercase tracking-[.16em] text-[#d1e3bc]">A little intelligence. A lot of possibility.</p><h2 className="max-w-[470px] text-[clamp(2rem,3.7vw,3rem)] font-semibold leading-[1.12] tracking-[-.05em]">Your next growing season, with a smarter start.</h2><p className="mt-4 max-w-[390px] text-[11px] leading-[1.6] text-white/70">Meet your AI farming companion. A simpler way to ask questions, explore crop insights, and make more informed decisions on your farm.</p><div className="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-[9px] text-white/80">{['Crop guidance', 'Practical insights', 'Everyday support'].map((item) => <span key={item}>{item}</span>)}</div></div>
+            <div className="relative mx-auto w-full max-w-[510px] rounded-[6px] bg-[#f6f7f0] p-4 text-[#203b2d] sm:p-5"><div className="flex items-center justify-between border-b border-[#e3e8df] pb-3"><div className="text-[11px] font-semibold">GreenPath assistant</div><span className="rounded-full bg-[#e7f0dc] px-2 py-1 text-[8px] font-bold text-[#537d4f]">PREVIEW</span></div><div className="py-4"><div className="ml-auto max-w-[290px] rounded-[5px] bg-[#e8efd9] p-3 text-[9px] text-[#556657]">How can I prepare for my next planting season?</div><p className="mt-4 text-[7px] font-bold uppercase tracking-[.14em] text-[#5a9164]">Let’s grow together</p><h3 className="mt-2 text-[12px] font-semibold">Start with your farm, not a guess.</h3><p className="mt-2 max-w-[340px] text-[9px] leading-[1.5] text-[#819083]">Tell me your crop, location, and planting plans. We can explore soil preparation, seasonal needs, and questions to discuss with a local expert.</p></div><div className="rounded-[4px] border border-[#e8ece4] bg-white px-3 py-2 text-[8px] text-[#a0aaa0]">Ask a farming question... <ArrowUpRight className="float-right text-[#438253]" size={12} /></div></div>
           </div>
+        </section>
 
-          <div>
-            <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100 mb-2">Carrier & Logistics</h4>
-            <ul className="space-y-1.5 text-[11px]">
-              <li><button onClick={() => { setActiveView('driver_dashboard'); navigate('/driver'); }} className="hover:underline">Freight Carrier Hub</button></li>
-              <li><button onClick={() => { setActiveView('freight_bids'); navigate('/freight-bids'); }} className="hover:underline">Delivery Job Board</button></li>
-              <li><button onClick={() => { setActiveView('logistics_dashboard'); navigate('/logistics-dashboard'); }} className="hover:underline">Corridor Tracking</button></li>
-            </ul>
+        <section className="mx-auto grid max-w-[1320px] items-center gap-10 px-5 py-20 sm:px-9 sm:py-24 lg:grid-cols-[.8fr_1.2fr] lg:px-14 lg:py-28">
+          <div><p className="mb-4 inline-flex rounded-full bg-[#edf2e5] px-3 py-1.5 text-[8px] font-bold uppercase tracking-[.12em] text-[#477c54]">On the roadmap</p><h2 className="max-w-[450px] text-[clamp(2rem,3.7vw,3.1rem)] font-semibold leading-[1.12] tracking-[-.05em]">From farm gate<br/>to your doorstep.<br/>Stay in the loop.</h2><p className="mt-4 max-w-[370px] text-[11px] leading-[1.6] text-[#748077]">Good connections shouldn’t end at checkout. We’re planning live logistics tracking to make the journey of every order easier to follow.</p><div className="mt-4 flex flex-wrap gap-2 text-[9px] font-medium text-[#477c54]"><span>Live location</span><span>·</span><span>Delivery progress</span><span>·</span><span>Order updates</span></div><p className="mt-4 text-[8px] text-[#98a197]">Future feature · Tracking preview shown for illustration.</p></div>
+          <div className="rounded-[6px] border border-[#e0e6dc] bg-white p-4 sm:p-5"><div className="flex items-start justify-between"><div><h3 className="text-[11px] font-semibold">Your harvest, on its way</h3><p className="mt-1 text-[7px] font-medium uppercase tracking-[.1em] text-[#8b9689]">Demo order · GP-0426</p></div><span className="rounded-full bg-[#eff4e8] px-2 py-1 text-[7px] font-medium text-[#61855a]">Location preview</span></div><div className="relative mt-3 h-[170px] overflow-hidden rounded-[3px] bg-[#edf2e8] sm:h-[205px]" style={{backgroundImage:'linear-gradient(28deg,transparent 47%,#fff 48%,#fff 51%,transparent 52%),linear-gradient(145deg,transparent 42%,#fff 43%,#fff 46%,transparent 47%),linear-gradient(90deg,transparent 34%,#fff 35%,#fff 38%,transparent 39%),linear-gradient(0deg,transparent 65%,#fff 66%,#fff 69%,transparent 70%)'}}><svg className="absolute inset-0 h-full w-full" viewBox="0 0 520 250" preserveAspectRatio="none" aria-hidden="true"><polyline points="70,194 165,194 165,145 286,145 286,86 430,86" fill="none" stroke="#247047" strokeWidth="5"/><circle cx="70" cy="194" r="8" fill="#247047"/><circle cx="286" cy="145" r="13" fill="#247047" stroke="#c8dfc2" strokeWidth="8"/><circle cx="430" cy="86" r="8" fill="#163c2c"/></svg><span className="absolute left-[11%] bottom-[10%] text-[7px] font-semibold text-[#285d41]">Farm</span><span className="absolute right-[14%] top-[30%] text-[7px] font-semibold text-[#285d41]">Your delivery</span></div><div className="mt-3 flex items-center justify-between text-[8px] text-[#7b887e]"><span className="font-semibold text-[#526d58]">Delivery journey</span><span>Preview only</span></div><div className="mt-3 flex items-center"><span className="h-2 w-2 rounded-full bg-[#28764d]"/><span className="h-px flex-1 bg-[#9abb92]"/><span className="h-2 w-2 rounded-full bg-[#28764d]"/><span className="h-px flex-1 bg-[#9abb92]"/><span className="h-2 w-2 rounded-full bg-[#28764d]"/><span className="h-px flex-1 bg-[#dce5d8]"/><span className="h-2 w-2 rounded-full bg-[#dce5d8]"/></div><div className="mt-2 flex justify-between text-[7px] text-[#879187]"><span>Confirmed</span><span>Picked up</span><span className="font-semibold text-[#4b8158]">On the way</span><span>Delivered</span></div></div>
+        </section>
+
+        <section className="bg-[#deefb6]">
+          <div className="mx-auto max-w-[1320px] px-5 py-9 sm:px-9 sm:py-11 lg:px-14"><h2 className="text-[clamp(1.7rem,3vw,2.6rem)] font-semibold leading-tight tracking-[-.04em]">Better connections. Better possibilities.</h2><p className="mt-2 max-w-[560px] text-[11px] leading-5 text-[#637a65]">Whether you grow it or need it, your next chapter starts here.</p><div className="mt-5"><button onClick={() => go('register')} className="rounded-[4px] bg-[#1e6848] px-4 py-2.5 text-[10px] font-bold text-white hover:bg-[#17553a]">Register <ArrowRight className="ml-1 inline" size={12} /></button></div></div>
+        </section>
+      </main>
+
+      <footer className="bg-[#153a2b] text-white">
+        <div className="mx-auto max-w-[1320px] px-5 py-8 sm:px-9 sm:py-9 lg:px-14">
+          <div className="flex flex-col gap-6 border-b border-white/15 pb-6 sm:flex-row sm:items-start sm:justify-between">
+            <div><a href="/" onClick={(e) => { e.preventDefault(); setActiveView('landing'); navigate('/'); }} className="inline-flex text-[17px] font-extrabold tracking-[-.05em]">{shortBrand}</a><p className="mt-2 text-[11px] text-white/65">Farm to market, together.</p></div>
+            <address className="flex flex-col gap-2 not-italic text-[11px] text-white/70 sm:items-end">{content?.contactEmail && <a className="inline-flex items-center gap-2 hover:text-white" href={`mailto:${content.contactEmail}`}><Mail size={13}/>{content.contactEmail}</a>}{content?.contactPhone && <a className="inline-flex items-center gap-2 hover:text-white" href={`tel:${content.contactPhone}`}><Phone size={13}/>{content.contactPhone}</a>}{content?.contactOffice && <span className="inline-flex items-center gap-2"><MapPin size={13}/>{content.contactOffice}</span>}</address>
           </div>
-
-          <div>
-            <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100 mb-2">Contact & Operations</h4>
-            <p className="text-[11px] leading-relaxed">
-              Addis Ababa Central Freight & Agriculture Terminal
-            </p>
-            <div className="text-[11px] mt-2 space-y-0.5">
-              <div>Email: support@greenpath.et</div>
-              <div>Hotline: +251 900 000 000</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 border-t border-slate-100 dark:border-slate-800 text-center text-[11px]">
-          © 2026 GreenPath Farm to Market AI. All Rights Reserved. Escrow Secured by Chapa.
+          <div className="pt-4 text-[9px] text-white/45">© {new Date().getFullYear()} GreenPath. All rights reserved.</div>
         </div>
       </footer>
     </div>

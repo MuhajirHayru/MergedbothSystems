@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/apiClient';
 import {
@@ -103,6 +103,13 @@ export const WalletView: React.FC = () => {
   // Payout Form
   const [payoutAmount, setPayoutAmount] = useState<number>(25000);
   const [selectedBankId, setSelectedBankId] = useState<string>(bankAccounts[0]?.id || '');
+  // One idempotency key per payout intent. It survives a failed/uncertain
+  // request (safe retry) and is replaced when amount or destination changes.
+  const payoutIntentRef = useRef<{
+    amount: number;
+    bankId: string;
+    key: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!selectedBankId && bankAccounts[0]) setSelectedBankId(bankAccounts[0].id);
@@ -130,12 +137,21 @@ export const WalletView: React.FC = () => {
     if (!payoutAmount || payoutAmount <= 0) return;
     const targetBank = bankAccounts.find((b) => b.id === selectedBankId) || bankAccounts[0];
     if (targetBank) {
+      const currentIntent = payoutIntentRef.current;
+      const key =
+        currentIntent &&
+        currentIntent.amount === payoutAmount &&
+        currentIntent.bankId === targetBank.id
+          ? currentIntent.key
+          : crypto.randomUUID();
+      payoutIntentRef.current = { amount: payoutAmount, bankId: targetBank.id, key };
       try {
         await api.wallet.createPayout({
           amount: payoutAmount,
           payout_account: targetBank.id,
           destination: `${targetBank.bank_name || targetBank.bankName} ${targetBank.masked_account_number || targetBank.maskedAccountNumber}`,
-        });
+        }, key);
+        payoutIntentRef.current = null;
         setNotification?.('Payout requested. It will be reviewed by a Financial Manager.');
         setShowPayoutModal(false);
         setReloadKey((value) => value + 1);

@@ -29,6 +29,8 @@ interface Props {
   label?: string;
   /** Keep the first column to one administrative level (e.g. REGION). */
   rootLevel?: string;
+  /** Hydrate a saved region → zone → wereda → kebele path. */
+  initialPathIds?: string[];
 }
 
 /**
@@ -46,6 +48,7 @@ export const LocationPicker: React.FC<Props> = ({
   disabled = false,
   label = 'Administrative scope',
   rootLevel,
+  initialPathIds,
 }) => {
   const [columns, setColumns] = useState<AdministrativeLocation[][]>([]);
   const [path, setPath] = useState<AdministrativeLocation[]>([]);
@@ -83,6 +86,38 @@ export const LocationPicker: React.FC<Props> = ({
       cancelled = true;
     };
   }, [startParentId, loadChildren, rootLevel]);
+
+  useEffect(() => {
+    if (!initialPathIds?.length || !columns[0]?.length) return;
+    let cancelled = false;
+    const hydrate = async () => {
+      const nextPath: AdministrativeLocation[] = [];
+      let rows = columns[0];
+      for (const id of initialPathIds) {
+        const selected = rows.find((row) => row.id === id);
+        if (!selected) break;
+        nextPath.push(selected);
+        if (!selected.has_children) break;
+        rows = await loadChildren(selected.id);
+        if (!rows.length) break;
+      }
+      if (cancelled) return;
+      const nextColumns: AdministrativeLocation[][] = [columns[0]];
+      for (const item of nextPath) {
+        if (!item.has_children) break;
+        const children = await loadChildren(item.id);
+        if (!children.length) break;
+        nextColumns.push(children);
+      }
+      if (cancelled) return;
+      setPath(nextPath);
+      setColumns(nextColumns);
+      onChange(nextPath[nextPath.length - 1] || null);
+      onPathChange?.(nextPath);
+    };
+    void hydrate().catch((err) => setError(formatApiError(err, 'Unable to load the registered address path.')));
+    return () => { cancelled = true; };
+  }, [initialPathIds, columns[0], loadChildren, onChange, onPathChange]);
 
   // Keep only the columns that correspond to the current selected path.
   useEffect(() => {

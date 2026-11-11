@@ -160,6 +160,9 @@ export const api = {
     createShipmentDetails: (id: string, data: any) => apiClient.put(`/orders/${id}/shipment-details/`, data),
     updateShipmentDetails: (id: string, data: any) => apiClient.patch(`/orders/${id}/shipment-details/`, data),
     confirmShipmentDetails: (id: string, data?: any) => apiClient.post(`/orders/${id}/shipment-details/confirm/`, data || {}),
+    startDeliveryPayment: (id: string) => apiClient.post(`/orders/${id}/delivery-payment/`, {}),
+    acceptDeliveryBid: (id: string) => apiClient.post(`/orders/${id}/accept-delivery-bid/`, {}),
+    verifyDeliveryPayment: (id: string) => apiClient.post(`/payments/delivery-payments/${id}/verify/`, {}),
   },
   payments: {
     list: (params?: any) => apiClient.get('/payments/', { params }),
@@ -188,7 +191,14 @@ export const api = {
     bankAccountFullDetails: (id: string) => apiClient.get(`/wallet/bank-accounts/${id}/full-details/`),
     requireBankAccountReview: (id: string, data: { notes: string }) =>
       apiClient.post(`/wallet/bank-accounts/${id}/require-review/`, data),
-    createPayout: (data: any) => apiClient.post('/wallet/payouts/', data, { headers: { 'Idempotency-Key': `payout-${Date.now()}-${Math.random().toString(36).slice(2)}` } }),
+    // Callers own the key lifecycle: one key per payout intent, reused on
+    // retry and replaced when the amount/destination changes.
+    createPayout: (data: any, idempotencyKey: string) => {
+      if (!idempotencyKey) throw new Error('A payout idempotency key is required.');
+      return apiClient.post('/wallet/payouts/', data, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+      });
+    },
     reviewPayout: (id: string, data: any) => apiClient.post(`/wallet/payouts/${id}/review/`, data),
     createFunding: (data: any) => apiClient.post('/wallet/funding/', data),
     chapaInitialize: (data: any) => apiClient.post('/wallet/funding/chapa/', data),

@@ -233,6 +233,35 @@ def initialize_checkout(funding):
     return checkout_url
 
 
+def initialize_delivery_checkout(payment):
+    """Initialize Chapa checkout for the buyer's accepted freight fee."""
+    agreement = payment.agreement
+    user = agreement.order.buyer
+    names = user.full_name.strip().split(maxsplit=1)
+    payload = {
+        "amount": str(payment.customer_amount),
+        "currency": agreement.currency,
+        "email": user.email,
+        "first_name": names[0] if names else user.email,
+        "last_name": names[1] if len(names) > 1 else names[0] if names else "",
+        "tx_ref": payment.payment_reference,
+        "callback_url": settings.CHAPA_CALLBACK_URL,
+        "return_url": f"{settings.FRONTEND_BASE_URL.rstrip('/')}/orders/{agreement.order_id}?delivery_payment={payment.pk}",
+        "customization": {
+            "title": "GreenPath Delivery Fee",
+            "description": f"Delivery for order {agreement.order.reference}",
+        },
+    }
+    if re.fullmatch(r"0[79]\d{8}", user.phone or ""):
+        payload["phone_number"] = user.phone
+    response = _chapa_request("POST", "/transaction/initialize", payload)
+    data = response.get("data")
+    checkout_url = data.get("checkout_url") if isinstance(data, dict) else None
+    if response.get("status") != "success" or not isinstance(checkout_url, str) or not checkout_url.startswith("https://"):
+        raise ChapaGatewayError()
+    return checkout_url
+
+
 def _apply_verification(funding_id, provider_data):
     tx_ref = str(provider_data.get("tx_ref") or "")
     provider_status = str(provider_data.get("status") or "").strip().lower()
@@ -353,25 +382,23 @@ def verify_funding(funding):
     return _apply_verification(funding.pk, data)
 
 
-def verify_webhook_signature(body, signature, signature_v2):
+def verify_webhook_signature(body, signature):
+    """Verify Chapa's documented body-bound webhook signature.
+
+    Chapa sends ``x-chapa-signature: HMAC_SHA256(webhook_secret, raw_body)``
+    (v1 and v2 webhooks). The legacy ``Chapa-Signature`` header is a constant
+    ``HMAC(secret, secret)`` that does not bind the body, so accepting it alone
+    would let an observed header be replayed with a forged payload. It is
+    deliberately not accepted here.
+    """
     _, webhook_secret = _config(require_webhook=True)
-    webhook_secret_bytes = webhook_secret.encode("utf-8")
-    expected_v1 = hmac.new(
-        webhook_secret_bytes,
-        webhook_secret_bytes,
-        hashlib.sha256,
+    expected = hmac.new(
+        webhook_secret.encode("utf-8"), body, hashlib.sha256
     ).hexdigest()
-    expected_v2 = hmac.new(
-        webhook_secret_bytes, body, hashlib.sha256
-    ).hexdigest()
-
-    def matches(value, expected):
-        value = (value or "").strip()
-        if value.lower().startswith("sha256="):
-            value = value[7:]
-        return bool(value) and hmac.compare_digest(value.lower(), expected.lower())
-
-    return matches(signature, expected_v1) or matches(signature_v2, expected_v2)
+    value = (signature or "").strip()
+    if value.lower().startswith("sha256="):
+        value = value[7:]
+    return bool(value) and hmac.compare_digest(value.lower(), expected.lower())
 
 
 def funding_from_webhook(body):

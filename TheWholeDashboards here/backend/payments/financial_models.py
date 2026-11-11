@@ -249,6 +249,7 @@ class DeliveryFeePayment(models.Model):
     platform_fee = models.DecimalField(max_digits=14, decimal_places=2)
     tax_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     payment_reference = models.CharField(max_length=100, unique=True)
+    checkout_url = models.URLField(max_length=500, blank=True, default="")
     verification_evidence = models.CharField(max_length=255, blank=True, default="")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     journal_entry = models.OneToOneField("payments.FinancialJournalEntry", on_delete=models.PROTECT, null=True, blank=True, related_name="delivery_collection")

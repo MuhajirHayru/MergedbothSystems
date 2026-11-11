@@ -359,7 +359,7 @@ const AppContent: React.FC = () => {
       case 'discount_management':
         return <DiscountManagementView />;
       case 'support_management':
-        return <SupportManagementView staffView={['financial_manager', 'super_admin', 'user_admin'].includes(currentRole)} />;
+        return <SupportManagementView staffView={['customer_support', 'super_admin'].includes(currentRole)} />;
       case 'account_control':
         return <AccountControlPanel />;
       case 'banner_management':
@@ -484,11 +484,13 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-      {/* Top Header */}
-      <Header
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        sidebarOpen={sidebarOpen}
-      />
+      {/* The public landing page provides its own focused account navigation. */}
+      {!(activeView === 'landing' && currentRole === 'public') && (
+        <Header
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          sidebarOpen={sidebarOpen}
+        />
+      )}
 
       {/* Main Container */}
       <div className="flex-1 flex w-full">

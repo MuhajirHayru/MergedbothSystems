@@ -503,7 +503,9 @@ class MarketplaceDeliveryFeeAgreement(models.Model):
         Order, on_delete=models.PROTECT, related_name="delivery_fee_agreement"
     )
     source_event_id = models.UUIDField(unique=True)
-    driver_shipment_id = models.PositiveBigIntegerField()
+    # Optional external DriverApp reference. FreightJob is the canonical
+    # marketplace assignment ID; never persist a fabricated zero shipment ID.
+    driver_shipment_id = models.PositiveBigIntegerField(null=True, blank=True)
     driver_payee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,

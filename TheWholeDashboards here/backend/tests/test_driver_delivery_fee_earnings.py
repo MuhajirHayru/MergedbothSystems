@@ -16,6 +16,8 @@ from payments.models import (
     WalletTransaction,
     WalletTransactionType,
 )
+from payments.financial_models import DeliveryFeePayment
+from payments.freight_models import FreightJob
 from payments.shipment_feed import _apply_page
 from registrations.models import AdministrativeLocation, LocationLevel
 from tests.conftest import make_user
@@ -77,7 +79,7 @@ def review_url(agreement):
     return f"/api/v1/payments/delivery-fee-agreements/{agreement.pk}/review/"
 
 
-def test_approval_credits_the_driver_wallet_exactly_once(
+def test_approval_records_terms_without_early_driver_payment(
     api, financial_manager, delivery_fee_agreement, driver
 ):
     api.force_authenticate(user=financial_manager)
@@ -89,24 +91,14 @@ def test_approval_credits_the_driver_wallet_exactly_once(
     )
 
     assert response.status_code == 201, response.data
-    wallet = Wallet.objects.get(user=driver)
-    assert wallet.available_balance == Decimal("250.00")
-    assert wallet.held_balance == Decimal("0.00")
-    entry = WalletTransaction.objects.get(
+    assert not WalletTransaction.objects.filter(
         transaction_type=WalletTransactionType.DELIVERY_FEE_EARNING
-    )
-    assert entry.amount == Decimal("250.00")
-    assert entry.available_delta == Decimal("250.00")
-    assert entry.held_delta == Decimal("0.00")
-    assert entry.reference == f"DRIVER-FEE-{delivery_fee_agreement.pk}"
-    assert entry.order_id == delivery_fee_agreement.order_id
-    assert entry.actor_id == financial_manager.pk
-    assert AuditLog.objects.filter(
-        actor=financial_manager, action="driver_delivery_fee_credited"
     ).exists()
+    wallet = Wallet.objects.filter(user=driver).first()
+    assert wallet is None or wallet.available_balance == Decimal("0.00")
 
 
-def test_identical_retry_does_not_credit_the_driver_twice(
+def test_approved_delivery_is_credited_only_after_verified_collection_and_delivery(
     api, financial_manager, delivery_fee_agreement, driver
 ):
     api.force_authenticate(user=financial_manager)
@@ -117,10 +109,27 @@ def test_identical_retry_does_not_credit_the_driver_twice(
 
     assert first.status_code == 201
     assert retry.status_code == 200
-    assert WalletTransaction.objects.filter(
+    assert not WalletTransaction.objects.filter(
         transaction_type=WalletTransactionType.DELIVERY_FEE_EARNING
-    ).count() == 1
-    assert Wallet.objects.get(user=driver).available_balance == Decimal("250.00")
+    ).exists()
+    fee_payment = DeliveryFeePayment.objects.create(
+        agreement=delivery_fee_agreement, pricing_model="A", fee_type="FIXED",
+        fee_value="50.00", customer_amount="250.00", driver_charge="200.00",
+        platform_fee="50.00", payment_reference="DELIVERY-COLLECTED-1",
+        status=DeliveryFeePayment.Status.VERIFIED,
+    )
+    FreightJob.objects.create(
+        order=delivery_fee_agreement.order, status=FreightJob.Status.COMPLETED,
+        assigned_driver=driver, delivery_status="DELIVERED",
+    )
+    from payments.financial_services import credit_driver_for_verified_delivery
+    first_credit = credit_driver_for_verified_delivery(fee_payment, actor=financial_manager)
+    retry_credit = credit_driver_for_verified_delivery(fee_payment, actor=financial_manager)
+    assert first_credit.pk == retry_credit.pk
+    assert WalletTransaction.objects.filter(reference=f"DRIVER-DELIVERY-PAYMENT-{fee_payment.pk}").count() == 1
+    assert Wallet.objects.get(user=driver).available_balance == Decimal("200.00")
+    fee_payment.refresh_from_db()
+    assert fee_payment.compensation_payment_reference == f"WALLET:{fee_payment.payment_reference}"
 
 
 def test_rejection_leaves_the_driver_wallet_untouched(
@@ -184,7 +193,7 @@ def test_driver_can_read_their_own_wallet(api, driver):
     assert Decimal(str(response.data["available_balance"])) == Decimal("0.00")
 
 
-def test_driver_can_request_a_payout_from_the_approved_fee(
+def test_driver_cannot_withdraw_uncollected_or_undelivered_fee(
     api, financial_manager, delivery_fee_agreement, driver
 ):
     api.force_authenticate(user=financial_manager)
@@ -199,15 +208,13 @@ def test_driver_can_request_a_payout_from_the_approved_fee(
         "/api/v1/wallet/payouts/",
         {"amount": "100.00", "destination": "Commercial Bank of Ethiopia 1234"},
         format="json",
+        HTTP_IDEMPOTENCY_KEY="driver-fee-payout-1",
     )
 
-    assert response.status_code == 201, response.data
-    payout = WalletPayoutRequest.objects.get()
-    assert payout.amount == Decimal("100.00")
-    assert payout.wallet.user_id == driver.pk
-    wallet = Wallet.objects.get(user=driver)
-    assert wallet.available_balance == Decimal("150.00")
-    assert wallet.held_balance == Decimal("100.00")
+    assert response.status_code == 400, response.data
+    assert WalletPayoutRequest.objects.count() == 0
+    wallet = Wallet.objects.filter(user=driver).first()
+    assert wallet is None or wallet.available_balance == Decimal("0.00")
 
 
 def test_driver_cannot_read_another_participants_wallet(api, driver, wholesaler):

@@ -140,7 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'logistics_dashboard', label: 'Logistics & Tracking', icon: Truck },
           { id: 'freight_bids', label: 'Freight Bidding', icon: Gavel },
           { id: '_hdr_operations', label: 'Coordination', header: true },
-          { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
+          { id: 'support_management', label: 'Get Help & Support', icon: LifeBuoy },
           { id: '_hdr_workspace', label: 'Workspace', header: true },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Settings', icon: Settings },
@@ -148,6 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       case 'customer_support':
         return [
           { id: 'support_management', label: 'Support Inbox', icon: LifeBuoy },
+          { id: 'logistics_dashboard', label: 'Shipment Context', icon: Truck },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Settings', icon: Settings },
         ];
@@ -175,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           { id: 'financial_ledger', label: 'Ledger & Profit/Loss', icon: TrendingUp },
           { id: 'discount_management', label: 'Discounts & Promotions', icon: BadgePercent },
           { id: '_hdr_compliance', label: 'Compliance & Workspace', header: true, group: true },
-          { id: 'support_management', label: 'Customer Support', icon: LifeBuoy },
+          { id: 'support_management', label: 'Get Help & Support', icon: LifeBuoy },
           { id: 'audit_logs', label: 'Audit & Compliance Logs', icon: FileText },
           { id: 'messaging', label: 'Messages', icon: MessageSquare },
           { id: 'settings', label: 'Financial Settings', icon: Settings },

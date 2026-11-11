@@ -16,6 +16,9 @@ from .financial_models import (
     DeliveryPricingConfiguration,
     DeliveryFeePayment,
 )
+from .models import Wallet, WalletTransaction, WalletTransactionType
+from .models import MarketplaceDeliveryFeeReview
+from .freight_models import FreightJob
 
 
 def _account(code, name, category):
@@ -637,6 +640,7 @@ def verify_delivery_payment(payment_id, *, actor, verified_amount=None, evidence
     from .revenue_engine import apply_freight_revenue
 
     apply_freight_revenue(payment, actor=actor)
+    credit_driver_for_verified_delivery(payment, actor=actor)
     if payment.tax_amount is None:
         return payment
     if payment.tax_amount > 0:
@@ -645,6 +649,51 @@ def verify_delivery_payment(payment_id, *, actor, verified_amount=None, evidence
             credit_code="LIABILITY:TAX_PAYABLE", credit_name="Tax payable", credit_category="LIABILITY",
             source="DELIVERY_PAYMENT", source_reference=payment.payment_reference, actor=actor, order_reference=agreement.order.reference)
     return payment
+
+
+@transaction.atomic
+def credit_driver_for_verified_delivery(payment, *, actor):
+    """Credit the accepted driver payable once, after collection and delivery."""
+    payment = DeliveryFeePayment.objects.select_for_update().select_related(
+        "agreement__driver_payee", "agreement__order"
+    ).get(pk=payment.pk)
+    agreement = payment.agreement
+    if payment.status != DeliveryFeePayment.Status.VERIFIED or not agreement.driver_payee_id:
+        return None
+    if not MarketplaceDeliveryFeeReview.objects.filter(
+        agreement=agreement, decision=MarketplaceDeliveryFeeReview.Decision.APPROVED
+    ).exists():
+        return None
+    job = FreightJob.objects.filter(order_id=agreement.order_id).first()
+    if job is None or job.status != FreightJob.Status.COMPLETED:
+        return None
+    reference = f"DRIVER-DELIVERY-PAYMENT-{payment.pk}"
+    existing = WalletTransaction.objects.filter(reference=reference).first()
+    if existing:
+        return existing
+    wallet, _ = Wallet.objects.get_or_create(user=agreement.driver_payee)
+    wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+    amount = Decimal(payment.driver_charge).quantize(Decimal("0.01"))
+    if amount <= 0 or wallet.currency != agreement.currency:
+        return None
+    wallet.available_balance += amount
+    wallet.save(update_fields=["available_balance", "updated_at"])
+    entry = WalletTransaction.objects.create(
+        wallet=wallet, order=agreement.order,
+        transaction_type=WalletTransactionType.DELIVERY_FEE_EARNING,
+        amount=amount, available_delta=amount, reference=reference,
+        external_reference=payment.payment_reference, actor=actor,
+        description=f"Collected delivery fee credited after delivery of {agreement.order.reference}.",
+    )
+    payment.compensation_paid_at = timezone.now()
+    payment.compensation_payment_reference = f"WALLET:{payment.payment_reference}"
+    payment.compensation_paid_by = actor
+    payment.save(update_fields=["compensation_paid_at", "compensation_payment_reference", "compensation_paid_by"])
+    AuditLog.objects.create(
+        actor=actor, action="driver_delivery_fee_credited", target=str(payment.pk),
+        detail=f"{amount} {agreement.currency} credited to driver wallet; ref {reference}.",
+    )
+    return entry
 
 
 @transaction.atomic
@@ -683,6 +732,13 @@ def pay_delivery_compensation(payment_id, *, actor, payment_reference):
     payment = DeliveryFeePayment.objects.select_for_update().select_related("agreement__order", "agreement__driver_payee").get(pk=payment_id)
     if payment.status != DeliveryFeePayment.Status.VERIFIED or payment.driver_charge <= 0:
         raise ValueError("Only verified payments with positive driver compensation can be paid.")
+    freight_job = FreightJob.objects.filter(order_id=payment.agreement.order_id).first()
+    if freight_job and freight_job.status != FreightJob.Status.COMPLETED:
+        raise ValueError("The marketplace driver is paid only after the freight job is delivered.")
+    if freight_job and not MarketplaceDeliveryFeeReview.objects.filter(
+        agreement=payment.agreement, decision=MarketplaceDeliveryFeeReview.Decision.APPROVED
+    ).exists():
+        raise ValueError("The delivery agreement must be financially approved before driver payment.")
     if payment.compensation_paid_at:
         if payment.compensation_payment_reference != payment_reference:
             raise ValueError("Driver compensation was already paid with a different reference.")
@@ -705,7 +761,22 @@ def pay_delivery_compensation(payment_id, *, actor, payment_reference):
     return payment
 
 
+@transaction.atomic
 def create_delivery_payment(*, agreement, actor, payment_reference, verified_amount=None, evidence_reference="", tax_amount=None):
+    from .models import MarketplaceDeliveryFeeAgreement
+    caller_agreement = agreement
+    agreement = MarketplaceDeliveryFeeAgreement.objects.select_for_update().select_related(
+        "order", "driver_payee"
+    ).get(pk=agreement.pk)
+    active_payment = DeliveryFeePayment.objects.filter(
+        agreement=agreement,
+        status__in=(DeliveryFeePayment.Status.PENDING, DeliveryFeePayment.Status.VERIFIED),
+    ).order_by("-created_at").first()
+    if active_payment is not None:
+        if active_payment.status == DeliveryFeePayment.Status.VERIFIED:
+            return active_payment
+        if active_payment.payment_reference != payment_reference:
+            return active_payment
     if not agreement.pricing_configuration_snapshot:
         snapshot_delivery_pricing(agreement)
     snapshot = agreement.pricing_configuration_snapshot
@@ -766,8 +837,12 @@ def create_delivery_payment(*, agreement, actor, payment_reference, verified_amo
     agreement.pricing_configuration_snapshot = {"configuration_id": str(config.pk), "fee_type": config.fee_type, "fee_value": str(config.fee_value), "minimum_fee": str(config.minimum_fee), "maximum_fee": str(config.maximum_fee), "effective_from": config.effective_from.isoformat(), "customer_amount": str(customer_amount), "driver_charge": str(driver_charge), "platform_fee": str(original_platform_fee), "tax_configuration_id": str(tax_configuration.pk) if tax_configuration else None, "tax_rule": tax_rule, "tax_amount": str(tax_amount) if tax_amount is not None else None}
     agreement.driver_charge_snapshot = driver_charge
     agreement.platform_fee_snapshot = original_platform_fee
-    from .models import MarketplaceDeliveryFeeAgreement
     MarketplaceDeliveryFeeAgreement.objects.filter(pk=agreement.pk).update(pricing_model_snapshot=agreement.pricing_model_snapshot, pricing_configuration_snapshot=agreement.pricing_configuration_snapshot, driver_charge_snapshot=driver_charge, platform_fee_snapshot=original_platform_fee, tax_amount_snapshot=tax_amount)
+    for field in (
+        "pricing_model_snapshot", "pricing_configuration_snapshot",
+        "driver_charge_snapshot", "platform_fee_snapshot", "tax_amount_snapshot",
+    ):
+        setattr(caller_agreement, field, getattr(agreement, field))
     if verified_amount is not None or evidence_reference:
         return verify_delivery_payment(payment.pk, actor=actor, verified_amount=verified_amount, evidence_reference=evidence_reference)
     return payment
@@ -846,9 +921,15 @@ def reconcile_financial_sources():
             if actual != expected:
                 issues.append({"source": "delivery_payment", "reference": payment.payment_reference, "issue": "delivery_journal_components_mismatch", "expected": sorted(expected), "actual": sorted(actual)})
             payout = FinancialJournalEntry.objects.filter(source="DELIVERY_DRIVER_PAYOUT", source_reference=payment.payment_reference, category="DELIVERY_DRIVER_COMPENSATION_PAID").first()
-            if payment.compensation_paid_at and (payout is None or payout.amount != payment.driver_charge):
+            wallet_credit = WalletTransaction.objects.filter(
+                reference=f"DRIVER-DELIVERY-PAYMENT-{payment.pk}"
+            ).first()
+            if payment.compensation_payment_reference.startswith("WALLET:"):
+                if payment.compensation_paid_at and (wallet_credit is None or wallet_credit.amount != payment.driver_charge):
+                    issues.append({"source": "delivery_payment", "reference": payment.payment_reference, "issue": "driver_wallet_credit_mismatch"})
+            elif payment.compensation_paid_at and (payout is None or payout.amount != payment.driver_charge):
                 issues.append({"source": "delivery_payment", "reference": payment.payment_reference, "issue": "driver_compensation_payout_mismatch"})
-            if not payment.compensation_paid_at and payout is not None:
+            if not payment.compensation_paid_at and (payout is not None or wallet_credit is not None):
                 issues.append({"source": "delivery_payment", "reference": payment.payment_reference, "issue": "driver_compensation_marked_unpaid_with_payout"})
             if payment.tax_amount and payment.tax_amount > 0 and not payment.tax_configuration_id:
                 issues.append({"source": "delivery_payment", "reference": payment.payment_reference, "issue": "delivery_tax_without_configuration"})
@@ -862,10 +943,6 @@ def reconcile_financial_sources():
             issues.append({"source": "order", "reference": order.reference, "issue": "released_order_missing_escrow_journal"})
         if not FinancialOrderSnapshot.objects.filter(order=order).exists():
             issues.append({"source": "order", "reference": order.reference, "issue": "released_order_missing_financial_snapshot"})
-    for tx in WalletTransaction.objects.filter(transaction_type="DELIVERY_FEE_EARNING").iterator():
-        if tx.order_id and not FinancialJournalEntry.objects.filter(source_reference=str(tx.order.delivery_fee_agreement_id) if hasattr(tx.order, "delivery_fee_agreement_id") else "", category="DELIVERY_FEE_EARNING").exists():
-            if not FinancialJournalEntry.objects.filter(source="DELIVERY_FEE_AGREEMENT", source_reference__in=[]).exists():
-                issues.append({"source": "driver_earning", "reference": tx.reference, "issue": "driver_earning_source_unlinked_check_needed"})
     return {"complete": not issues, "issue_count": len(issues), "discrepancies": issues}
 
 

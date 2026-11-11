@@ -101,6 +101,7 @@ class CanStartConversation(permissions.BasePermission):
         "RETAILER",
         "USER_ADMIN",
         "FINANCIAL_MANAGER",
+        "LOGISTICS_MANAGER",
         "SUPER_ADMIN",
     )
 

@@ -227,6 +227,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const currentUser = (userProfiles[currentRole] || userProfiles.farmer || {}) as UserProfile;
   const loadedRoleRef = useRef<string | null>(null);
   const sessionUserIdRef = useRef<string | null>(null);
+  const payoutIntentRef = useRef<{
+    amount: number;
+    destination: string;
+    key: string;
+  } | null>(null);
 
   // The backend wraps DRF errors as {success: false, error: <string | object>},
   // so a serializer error reaches us as an object. Rendering that object directly
@@ -568,7 +573,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else if (role === 'retailer') {
       attempts.push(async () => LIST(await api.products.wholesalerListings({ page_size: 100 })));
     } else if (
-      ['user_admin', 'top_user_admin', 'super_admin', 'financial_manager', 'logistics_manager', 'customer_support'].includes(role)
+      ['user_admin', 'top_user_admin', 'super_admin', 'financial_manager', 'logistics_manager', 'customer_support', 'regional_admin', 'zonal_admin', 'wereda_admin'].includes(role)
     ) {
       // Staff workspaces load the catalog inside their own screens with the
       // endpoints their role can actually read. Prefetching buyer listing feeds
@@ -660,10 +665,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const loadRoleData = useCallback(
     async (role: UserRole) => {
       loadedRoleRef.current = role;
+      const walletRoles: UserRole[] = [
+        'farmer', 'wholesaler', 'retailer', 'driver', 'financial_manager', 'super_admin',
+      ];
       await Promise.allSettled([
         loadProductsForRole(role),
         loadOrders(),
-        loadWalletData(),
+        ...(walletRoles.includes(role) ? [loadWalletData()] : []),
         loadConversations(),
         loadWaybills(),
         loadPlatformConfig(role),
@@ -1074,11 +1082,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     try {
       const primary = bankAccounts.find((b) => b.isPrimary) || bankAccounts[0];
+      const destination = primary
+        ? `${primary.bankName} ${primary.maskedAccountNumber}`
+        : _bankName;
+      const currentIntent = payoutIntentRef.current;
+      const key =
+        currentIntent &&
+        currentIntent.amount === amountETB &&
+        currentIntent.destination === destination
+          ? currentIntent.key
+          : crypto.randomUUID();
+      payoutIntentRef.current = { amount: amountETB, destination, key };
       await api.wallet.createPayout({
         amount: amountETB,
-        destination: primary ? `${primary.bankName} ${primary.maskedAccountNumber}` : _bankName,
+        destination,
         payout_account: primary?.id,
-      });
+      }, key);
+      payoutIntentRef.current = null;
       showNotification(`Payout request for ${amountETB.toLocaleString()} ETB submitted.`);
       loadWalletData();
     } catch (e: any) {

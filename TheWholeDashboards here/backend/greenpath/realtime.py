@@ -1,3 +1,4 @@
+import asyncio
 """Real-time fan-out helpers (doc 4.4 / 4.11.2).
 
 Django Channels' channel layer is the single transport for both chat and
@@ -34,6 +35,22 @@ def presence_user_group(user_id) -> str:
     return f"{PRESENCE_GROUP_PREFIX}_user_{user_id}"
 
 
+_main_loop: "asyncio.AbstractEventLoop | None" = None
+
+
+def set_main_loop(loop) -> None:
+    """Remember the ASGI event loop the WebSocket consumers run on.
+
+    Synchronous HTTP views execute on worker threads; with the in-memory
+    channel layer a ``group_send`` scheduled from a worker thread lands on a
+    different event loop and never reaches the consumers. Scheduling onto the
+    captured loop keeps single-process deployments (runserver + daphne)
+    delivering in real time without Redis.
+    """
+    global _main_loop
+    _main_loop = loop
+
+
 def push_to_group(group: str, payload: dict) -> bool:
     """Best-effort ``group_send`` from synchronous code.
 
@@ -44,6 +61,15 @@ def push_to_group(group: str, payload: dict) -> bool:
         layer = get_channel_layer()
         if layer is None:
             return False
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is None and _main_loop is not None and _main_loop.is_running():
+            # Sync context (REST view): schedule onto the consumers' loop so
+            # in-memory layer queues are touched from the right thread.
+            asyncio.run_coroutine_threadsafe(layer.group_send(group, payload), _main_loop)
+            return True
         async_to_sync(layer.group_send)(group, payload)
         return True
     except Exception:  # pragma: no cover - transport level failure

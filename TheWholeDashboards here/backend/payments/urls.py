@@ -47,6 +47,7 @@ from .financial_api import (
     DeliveryPricingListView,
     DeliveryPricingActionView,
     DeliveryPaymentCreateView,
+    DeliveryPaymentVerifyView,
     DeliveryCompensationActionView,
     FinancialRefundListView,
     FinancialRefundActionView,
@@ -127,6 +128,7 @@ urlpatterns = [
     path("financial/delivery-pricing/", DeliveryPricingListView.as_view(), name="delivery-pricing"),
     path("financial/delivery-pricing/<uuid:pk>/action/", DeliveryPricingActionView.as_view(), name="delivery-pricing-action"),
     path("financial/delivery-agreements/<int:agreement_id>/payments/", DeliveryPaymentCreateView.as_view(), name="delivery-payment-create"),
+    path("delivery-payments/<uuid:pk>/verify/", DeliveryPaymentVerifyView.as_view(), name="delivery-payment-verify"),
     path("financial/delivery-payments/<uuid:pk>/compensation/", DeliveryCompensationActionView.as_view(), name="delivery-compensation-action"),
     path(
         "delivery-fee-agreements/",

@@ -43,6 +43,7 @@ interface Job {
   id: string; order_reference: string; product: string; quantity: string; buyer: string;
   pickup: string; destination: string; cargo_weight_kg: null | string; packaging: string;
   status: string; assigned_driver: null | string; assigned_fee: null | string;
+  buyer_fee_limit?: null | string;
   published_at: string; bid_count: number; bids: Bid[];
 }
 
@@ -327,9 +328,10 @@ export const DriverFreightBoard: React.FC = () => {
               <div className="text-[11px] text-slate-500 flex items-center gap-1">
                 <MapPin className="w-3 h-3" /> {j.pickup} → {j.destination} · {j.cargo_weight_kg ?? '—'} kg · {j.packaging || 'no packaging info'}
               </div>
+              {j.buyer_fee_limit && <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">Buyer’s maximum delivery bid: {j.buyer_fee_limit} ETB</div>}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-1">
                 <input value={bidForm[j.id]?.amount ?? ''} onChange={(e) => setBidForm((f) => ({ ...f, [j.id]: { ...f[j.id], amount: e.target.value } }))}
-                  placeholder="Your bid (ETB)" type="number" min={1}
+                  placeholder="Your bid (ETB)" type="number" min={1} max={j.buyer_fee_limit ? Number(j.buyer_fee_limit) : undefined}
                   className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800" />
                 <input value={bidForm[j.id]?.hours ?? '24'} onChange={(e) => setBidForm((f) => ({ ...f, [j.id]: { ...f[j.id], hours: e.target.value } }))}
                   placeholder="ETA hours" type="number" min={1}

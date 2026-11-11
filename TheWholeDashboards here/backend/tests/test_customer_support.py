@@ -40,18 +40,29 @@ def test_user_submits_ticket_and_staff_gets_notified(api, farmer, support_staff)
 
 def test_support_inbox_filters_and_summary(api, farmer, support_staff):
     api.force_authenticate(user=farmer)
-    api.post("/api/v1/support/tickets/", {"subject": "Q1", "body": "b", "category": "ORDER"}, format="json")
+    first = api.post("/api/v1/support/tickets/", {"subject": "Q1", "body": "b", "category": "ORDER"}, format="json")
     api.post("/api/v1/support/tickets/", {"subject": "Q2", "body": "b", "category": "PAYMENT"}, format="json")
 
     api.force_authenticate(user=support_staff)
+    api.post(
+        f"/api/v1/support/inbox/{first.data['ticket']['id']}/action/",
+        {"action": "priority", "priority": "URGENT"},
+        format="json",
+    )
     inbox = api.get("/api/v1/support/inbox/")
     assert inbox.status_code == 200
     assert inbox.data["summary"]["total_incoming"] == 2
     assert inbox.data["summary"]["unanswered"] == 2
+    assert any(row["id"] == str(support_staff.pk) for row in inbox.data["assignees"])
 
     filtered = api.get("/api/v1/support/inbox/", {"category": "PAYMENT"})
     assert len(filtered.data["tickets"]) == 1
     assert filtered.data["tickets"][0]["subject"] == "Q2"
+
+    priority_filtered = api.get("/api/v1/support/inbox/", {"priority": "URGENT", "requester": farmer.full_name})
+    assert priority_filtered.status_code == 200
+    assert priority_filtered.data["pagination"]["total_items"] == 1
+    assert priority_filtered.data["tickets"][0]["subject"] == "Q1"
 
 
 def test_assign_respond_and_user_receives_response(api, farmer, support_staff):

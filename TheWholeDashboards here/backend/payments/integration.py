@@ -258,6 +258,17 @@ def enqueue_delivery_fee_review(review: MarketplaceDeliveryFeeReview):
         .get(pk=agreement.order_id)
     )
     event_id = review.decision_event_id
+    if agreement.driver_shipment_id is None:
+        # Marketplace FreightJob assignments have no DriverApp shipment ID.
+        # Keep the approval in the marketplace ledger; sending a fabricated or
+        # null external ID would create a second, conflicting dispatch flow.
+        AuditLog.objects.create(
+            actor=review.actor,
+            action="marketplace_delivery_fee_review_recorded_locally",
+            target=str(agreement.source_event_id),
+            detail=f"Order {order.reference}; marketplace freight job is authoritative.",
+        )
+        return None
     revision = _next_revision(order)
     occurred_at = review.decided_at
     delivery_fee_review = {

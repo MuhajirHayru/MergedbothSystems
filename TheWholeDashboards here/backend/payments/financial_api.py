@@ -581,6 +581,11 @@ class DeliveryPaymentCreateView(FinancialBaseView):
         from .financial_services import create_delivery_payment
         agreement = MarketplaceDeliveryFeeAgreement.objects.select_related("order").get(pk=agreement_id)
         try:
+            from .models import MarketplaceDeliveryFeeReview
+            if not agreement.buyer_accepted_at or not MarketplaceDeliveryFeeReview.objects.filter(
+                agreement=agreement, decision=MarketplaceDeliveryFeeReview.Decision.APPROVED
+            ).exists():
+                raise ValueError("Only a buyer-accepted, financially approved delivery agreement can be charged.")
             if "verified_amount" in request.data or "evidence_reference" in request.data or "tax_amount" in request.data:
                 raise PermissionDenied("Delivery payment amount, evidence, and tax are calculated or verified by the backend.")
             item = create_delivery_payment(
@@ -592,6 +597,37 @@ class DeliveryPaymentCreateView(FinancialBaseView):
         return Response({"id": str(item.pk), "status": item.status, "pricing_model": item.pricing_model,
                          "customer_amount": str(item.customer_amount), "driver_charge": str(item.driver_charge),
                          "platform_fee": str(item.platform_fee), "tax_amount": str(item.tax_amount) if item.tax_amount is not None else None}, status=201)
+
+
+class DeliveryPaymentVerifyView(APIView):
+    """Buyer or finance staff requests server-side Chapa verification."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .financial_services import verify_delivery_payment
+        from .chapa import ChapaGatewayError
+        payment = DeliveryFeePayment.objects.select_related("agreement__order").filter(pk=pk).first()
+        if payment is None:
+            raise NotFound("Delivery payment not found.")
+        order = payment.agreement.order
+        allowed = request.user.pk == order.buyer.pk or request.user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN)
+        if not allowed:
+            raise PermissionDenied("Only the buyer or financial staff can verify this delivery payment.")
+        try:
+            result = verify_delivery_payment(
+                payment.pk, actor=request.user, evidence_reference="chapa-server-verification"
+            )
+        except ChapaGatewayError as error:
+            raise ValidationError({"payment": "The provider could not verify this payment yet. Retry after checkout completes."}) from error
+        except ValueError as error:
+            raise ValidationError({"payment": str(error)}) from error
+        return Response({
+            "id": str(result.pk), "status": result.status,
+            "customer_amount": str(result.customer_amount),
+            "driver_charge": str(result.driver_charge),
+            "platform_fee": str(result.platform_fee),
+            "driver_credited_at": result.compensation_paid_at,
+        })
 
 
 class FinancialRefundListView(FinancialBaseView):

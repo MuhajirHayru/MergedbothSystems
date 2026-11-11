@@ -36,6 +36,8 @@ ALLOWED_COUNTERPARTIES = {
         Role.USER_ADMIN,
         Role.SUPER_ADMIN,
     },
+    Role.DRIVER: {Role.LOGISTICS_MANAGER, Role.SUPER_ADMIN},
+    Role.LOGISTICS_MANAGER: {Role.DRIVER},
     Role.SUPER_ADMIN: set(Role.values),
 }
 
@@ -138,6 +140,11 @@ def eligible_recipients(actor, search=""):
     elif actor.role == Role.FINANCIAL_MANAGER:
         candidates = candidates.filter(
             role__in=(Role.USER_ADMIN, Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN)
+        )
+    elif actor.role == Role.LOGISTICS_MANAGER:
+        candidates = candidates.filter(
+            role=Role.DRIVER,
+            driver_profile__application__status="approved",
         )
     elif actor.role in MARKETPLACE_ROLES:
         order_ids = Order.objects.filter(

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/apiClient';
@@ -77,6 +77,14 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
   const [cargoWeight, setCargoWeight] = useState('');
   const [packaging, setPackaging] = useState('');
   const [feeProposal, setFeeProposal] = useState('');
+  const [pickupPathIds, setPickupPathIds] = useState<string[]>([]);
+  const [destinationPathIds, setDestinationPathIds] = useState<string[]>([]);
+  const [registeredAddresses, setRegisteredAddresses] = useState<any>(null);
+  const [deliveryPayment, setDeliveryPayment] = useState<any>(null);
+  const [freightAssignment, setFreightAssignment] = useState<any>(null);
+  const ignoreLocationChange = useCallback(() => undefined, []);
+  const pickupInitialPathIds = useMemo(() => pickupPathIds, [pickupPathIds]);
+  const destinationInitialPathIds = useMemo(() => destinationPathIds, [destinationPathIds]);
 
   const loadSettlementReceipt = async () => {
     if (receiptLoading) return;
@@ -119,7 +127,36 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
   const loadShipment = useCallback(async () => {
     try {
       const res = await api.orders.shipmentDetails(orderId);
-      setShipment(res.data as ApiShipmentDetails);
+      const data = res.data as ApiShipmentDetails & { exists?: boolean; registered_addresses?: any };
+      setRegisteredAddresses(data.registered_addresses || null);
+      setDeliveryPayment((data as any).delivery_payment || null);
+      setFreightAssignment((data as any).freight_assignment || null);
+      const profileIds = (side: 'pickup' | 'destination') => ['region', 'zone', 'wereda', 'kebele']
+        .map((key) => data.registered_addresses?.[side]?.location_ids?.[key]).filter(Boolean) as string[];
+      if (data.exists === false) {
+        setShipment(null);
+        const pickup = data.registered_addresses?.pickup;
+        const destination = data.registered_addresses?.destination;
+        if (pickup) {
+          setPickupPathIds(profileIds('pickup'));
+          setPickupAddress(pickup.address_line || '');
+        } else setPickupPathIds([]);
+        if (destination) {
+          setDestinationPathIds(profileIds('destination'));
+          setDestinationAddress(destination.address_line || '');
+        } else setDestinationPathIds([]);
+      } else {
+        setShipment(data);
+        const pickIds = profileIds('pickup').length ? profileIds('pickup') : [data.pickup_region, data.pickup_zone, data.pickup_wereda, data.pickup_kebele].filter(Boolean) as string[];
+        const destIds = profileIds('destination').length ? profileIds('destination') : [data.destination_region, data.destination_zone, data.destination_wereda, data.destination_kebele].filter(Boolean) as string[];
+        setPickupPathIds(pickIds);
+        setDestinationPathIds(destIds);
+        setPickupAddress(data.pickup_address_line || data.registered_addresses?.pickup?.address_line || '');
+        setDestinationAddress(data.destination_address_line || data.registered_addresses?.destination?.address_line || '');
+        setCargoWeight(data.cargo_weight_kg || '');
+        setPackaging(data.packaging_details || '');
+        setFeeProposal(data.delivery_fee_proposal_amount || '');
+      }
     } catch (err: any) {
       // 404 simply means the buyer and seller have not started the delivery
       // arrangement yet; every other failure is shown to the user.
@@ -208,8 +245,8 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
       setActionError('Choose the pickup and destination regions.');
       return;
     }
-    if (!pickupAddress.trim() || !destinationAddress.trim() || !packaging.trim()) {
-      setActionError('Fill the pickup address, destination address and packaging details.');
+    if ((meIsSeller && !pickupAddress.trim()) || (meIsBuyer && !destinationAddress.trim()) || !packaging.trim()) {
+      setActionError('Enter your registered address and the packaging details. The other party address is loaded from their profile.');
       return;
     }
     if (!(Number(cargoWeight) > 0)) {
@@ -253,6 +290,22 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
       setFeeProposal('');
     }
   };
+
+  const startDeliveryPayment = () => void run(async () => {
+    const response = await api.orders.startDeliveryPayment(orderId);
+    setDeliveryPayment(response.data);
+  }, 'Delivery checkout is ready. Complete payment with the payment provider.');
+
+  const verifyDeliveryPayment = () => void run(async () => {
+    if (!deliveryPayment?.id) throw new Error('Start delivery checkout first.');
+    const response = await api.orders.verifyDeliveryPayment(deliveryPayment.id);
+    setDeliveryPayment((current: any) => ({ ...current, ...response.data }));
+  }, 'Delivery payment status refreshed from the provider.');
+
+  const acceptDeliveryBid = () => void run(
+    () => api.orders.acceptDeliveryBid(orderId),
+    'Winning driver bid accepted. Finance will review the delivery terms before payment.'
+  );
 
   const reviseFee = async () => {
     if (!(Number(feeRevision) > 0)) {
@@ -634,7 +687,7 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
               <div className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <Field
-                    label="Delivery fee proposal"
+                    label="Buyer’s delivery-fee limit"
                     value={feeAmount > 0 ? formatEtb(feeAmount) : 'Not proposed yet'}
                   />
                   <Field label="Details revision" value={shipment.details_revision} />
@@ -705,11 +758,55 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
                   </div>
                 ) : shipment.authorized ? (
                   <div className="p-3 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/30 text-xs">
-                    The marketplace authorized this shipment. It has been handed to the
-                    DriverApp for an eligible driver to accept; this screen shows the driver
-                    shipment id as soon as the DriverApp reports it back.
+                    {freightAssignment?.driver_name
+                      ? `Driver ${freightAssignment.driver_name} was assigned from the freight bids.`
+                      : 'The marketplace authorized this shipment and posted a freight job for approved drivers to bid on. Logistics staff assign the accepted bid.'}
                   </div>
                 ) : null}
+
+                {shipment.authorized && freightAssignment && (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-2 text-xs">
+                    <div className="font-bold">Freight bid and driver</div>
+                    <div className="text-slate-600 dark:text-slate-300">
+                      Job {freightAssignment.status?.toLowerCase()} · {freightAssignment.driver_name || 'Waiting for logistics to assign a driver'}
+                      {freightAssignment.agreed_fee ? ` · bid ${formatEtb(freightAssignment.agreed_fee)}` : ''}
+                      {freightAssignment.delivery_status ? ` · ${freightAssignment.delivery_status.replaceAll('_', ' ').toLowerCase()}` : ''}
+                    </div>
+                    <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
+                      <div className="font-semibold">Delivery payment · separate from product escrow</div>
+                      {deliveryPayment ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span>{deliveryPayment.status} · {formatEtb(deliveryPayment.customer_amount)}</span>
+                          {meIsBuyer && deliveryPayment.checkout_url && deliveryPayment.status === 'PENDING' && (
+                            <a href={deliveryPayment.checkout_url} target="_blank" rel="noreferrer" className="text-[#15803D] underline font-semibold">Continue secure checkout</a>
+                          )}
+                          {meIsBuyer && deliveryPayment.status === 'PENDING' && (
+                            <button disabled={busy} onClick={verifyDeliveryPayment} className="px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-semibold">Verify payment</button>
+                          )}
+                          {deliveryPayment.status === 'VERIFIED' && (
+                            <span>{deliveryPayment.driver_credited_at ? 'Driver payable credited to their wallet after delivery.' : 'Collected; driver wallet credit follows completed delivery.'}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-slate-600 dark:text-slate-300">
+                          {!freightAssignment.buyer_accepted ? (
+                            <span>Accepting the bid creates the delivery agreement. You are not charged before you accept it.</span>
+                          ) : freightAssignment.financial_review !== 'approved' ? (
+                            <span>Buyer accepted the bid. Checkout opens after Finance approves the agreement.</span>
+                          ) : (
+                            <span>Buyer agreement and Finance approval are recorded. Checkout is ready.</span>
+                          )}
+                          {meIsBuyer && freightAssignment.status === 'ASSIGNED' && !freightAssignment.buyer_accepted && (
+                            <button disabled={busy} onClick={acceptDeliveryBid} className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold">Accept {formatEtb(freightAssignment.agreed_fee)} bid</button>
+                          )}
+                          {meIsBuyer && freightAssignment.status === 'ASSIGNED' && freightAssignment.buyer_accepted && freightAssignment.financial_review === 'approved' && (
+                            <button disabled={busy} onClick={startDeliveryPayment} className="px-3 py-1.5 rounded-lg bg-[#15803D] text-white font-bold">Prepare delivery payment</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {canEditShipment && !myConfirmationDone && feeAmount > 0 && (
                   <button
@@ -732,8 +829,8 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
                 {meIsBuyer && !shipment.authorized && (
                   <div className="flex flex-wrap items-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <label className="text-xs flex-1 min-w-[180px]">
-                      <span className="block text-slate-500 dark:text-slate-400 mb-1">
-                        Revise the delivery fee (ETB)
+                        <span className="block text-slate-500 dark:text-slate-400 mb-1">
+                        Set maximum delivery bid (ETB)
                       </span>
                       <input
                         type="number"
@@ -763,33 +860,43 @@ export const OrderDetailView: React.FC<Props> = ({ orderId }) => {
                     ? 'Saving new details creates a new revision and resets both confirmations.'
                     : 'Record the pickup, destination, cargo and fee. Both the buyer and the seller must confirm the same revision before the marketplace authorizes a driver.'}
                 </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-2 text-emerald-800 dark:text-emerald-200"><strong>Pickup · seller</strong><br />Uses the seller’s registered business location.</div>
+                  <div className="rounded-lg bg-sky-50 dark:bg-sky-950/30 p-2 text-sky-800 dark:text-sky-200"><strong>Delivery · buyer</strong><br />Uses the buyer’s registered delivery location.</div>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <LocationPicker
                     value={pickupPath[pickupPath.length - 1]?.id ?? null}
-                    onChange={() => undefined}
+                    onChange={ignoreLocationChange}
                     onPathChange={setPickupPath}
                     label="Pickup region"
                     rootLevel="REGION"
+                    initialPathIds={pickupInitialPathIds}
+                    disabled={Boolean(registeredAddresses?.pickup?.location_ids?.region)}
                   />
                   <LocationPicker
                     value={destinationPath[destinationPath.length - 1]?.id ?? null}
-                    onChange={() => undefined}
+                    onChange={ignoreLocationChange}
                     onPathChange={setDestinationPath}
                     label="Destination region"
                     rootLevel="REGION"
+                    initialPathIds={destinationInitialPathIds}
+                    disabled={Boolean(registeredAddresses?.destination?.location_ids?.region)}
                   />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     value={pickupAddress}
                     onChange={(event) => setPickupAddress(event.target.value)}
-                    placeholder="Pickup address line"
+                    readOnly={Boolean(registeredAddresses?.pickup?.has_address_line)}
+                    placeholder={registeredAddresses?.pickup?.has_address_line ? 'Seller’s registered pickup address is applied privately' : 'Seller pickup address'}
                     className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   />
                   <input
                     value={destinationAddress}
                     onChange={(event) => setDestinationAddress(event.target.value)}
-                    placeholder="Destination address line"
+                    readOnly={Boolean(registeredAddresses?.destination?.has_address_line)}
+                    placeholder={registeredAddresses?.destination?.has_address_line ? 'Buyer’s registered delivery address is applied privately' : 'Buyer delivery address'}
                     className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   />
                   <input

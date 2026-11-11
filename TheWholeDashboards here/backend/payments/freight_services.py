@@ -1,6 +1,5 @@
 """Part 26 — freight bidding services: job creation, bidding, staff assignment."""
 
-import uuid
 from decimal import Decimal
 
 from django.db import transaction
@@ -89,6 +88,9 @@ def place_bid(*, driver, job_id, amount, estimated_hours, message=""):
     amount = Decimal(str(amount))
     if amount <= 0:
         raise ValidationError({"amount": "Bid amount must be greater than zero."})
+    details = OrderShipmentDetails.objects.filter(order=job.order, authorized_at__isnull=False).first()
+    if details and details.delivery_fee_proposal_amount and amount > details.delivery_fee_proposal_amount:
+        raise ValidationError({"amount": "Bid exceeds the buyer's approved delivery-fee limit."})
     existing = FreightBid.objects.filter(job=job, driver=driver).first()
     if existing is not None and existing.status == FreightBid.Status.SUBMITTED:
         # A driver may improve their own open bid; append-only rows are updated
@@ -138,8 +140,7 @@ def withdraw_bid(*, driver, job_id):
 
 @transaction.atomic
 def assign_bid(*, staff, job_id, bid_id):
-    """Logistics staff accept a bid: everything else is rejected and the
-    delivery fee agreement snapshot is recorded like the Option C models."""
+    """Assign the selected bid; the buyer must separately accept its amount."""
     if staff.role not in STAFF_ROLES:
         raise ValidationError({"detail": "Only logistics staff can assign freight jobs."})
     job = FreightJob.objects.select_for_update().select_related("order").filter(pk=job_id).first()
@@ -154,6 +155,12 @@ def assign_bid(*, staff, job_id, bid_id):
         raise NotFound("Bid not found for this job.")
     if bid.status != FreightBid.Status.SUBMITTED:
         raise ValidationError({"detail": "This bid is no longer available."})
+    prior_agreement = MarketplaceDeliveryFeeAgreement.objects.filter(order=job.order).first()
+    if prior_agreement and (
+        prior_agreement.amount != bid.amount
+        or prior_agreement.driver_payee_id != bid.driver_id
+    ):
+        raise ValidationError({"detail": "An accepted delivery agreement already exists for a different bid. Do not overwrite it."})
 
     now = timezone.now()
     FreightBid.objects.filter(pk=bid.pk).update(
@@ -169,9 +176,9 @@ def assign_bid(*, staff, job_id, bid_id):
     job.assigned_at = now
     job.save(update_fields=["status", "assigned_driver", "assigned_fee", "assigned_at"])
 
-    # Record the delivery fee agreement snapshot (Option C: the accepted bid
-    # IS the customer-agreed delivery amount; platform fee snapshot comes from
-    # the approved pricing configuration at acceptance time).
+    # Assigning a driver accepts the driver's submitted bid, but does not mean
+    # the buyer agreed to pay it. The buyer creates the immutable fee agreement
+    # with an explicit acceptance in the order flow.
     details = OrderShipmentDetails.objects.filter(order=job.order).first()
     # Part 26.4 — the logistics manager releases the exact seller/buyer addresses
     # to the winning driver only, at assignment.
@@ -187,27 +194,10 @@ def assign_bid(*, staff, job_id, bid_id):
         job.addresses_disclosed_at = now
         job.save(update_fields=["exact_pickup_address", "exact_destination_address", "addresses_disclosed_at"])
         if details.driver_shipment_id is None:
-            details.driver_shipment_id = 0
+            # A freight bid assignment is not a DriverApp shipment ID. Keep
+            # that external reference empty until a real integration event arrives.
             details.driver_shipment_status = "assigned"
-            details.save(update_fields=["driver_shipment_id", "driver_shipment_status", "updated_at"])
-
-    # The accepted bid is the final customer-agreed delivery amount: update any
-    # existing agreement snapshot (e.g. from an earlier DriverApp feed event) to
-    # match it, or create one for staff-managed assignments.
-    agreement, _ = MarketplaceDeliveryFeeAgreement.objects.update_or_create(
-        order=job.order,
-        defaults={
-            "source_event_id": uuid.uuid4(),
-            "driver_shipment_id": 0,
-            "driver_payee": bid.driver,
-            "driver_external_user_id": str(bid.driver.pk),
-            "driver_proposal_version": 1,
-            "amount": bid.amount,
-            "currency": "ETB",
-            "buyer_accepted_at": (details.authorized_at or now) if details else now,
-            "driver_accepted_at": now,
-        },
-    )
+            details.save(update_fields=["driver_shipment_status", "updated_at"])
 
     notify(
         user_ids=[bid.driver_id],
@@ -225,7 +215,7 @@ def assign_bid(*, staff, job_id, bid_id):
         type="SYSTEM",
         message=(
             f"A driver was assigned to your order {job.order.reference} "
-            f"for {bid.amount} ETB."
+            f"with a bid of {bid.amount} ETB. Review and accept this amount before payment."
         ),
         actor=staff,
         target_url="/orders",
@@ -261,14 +251,32 @@ def advance_delivery_status(*, driver, job_id):
     if job.status != FreightJob.Status.ASSIGNED:
         raise ValidationError({"detail": "Only assigned jobs can be progressed."})
     current = job.delivery_status or "ASSIGNED"
-    allowed_from = {v: k for k, v in DELIVERY_TRANSITIONS.items()}
-    if current not in allowed_from:
+    next_status = DELIVERY_TRANSITIONS.get(current)
+    if next_status is None:
         raise ValidationError({"detail": f"Delivery already at final status: {current}."})
-    next_status = allowed_from[current]
     job.delivery_status = next_status
     job.delivery_status_updated_at = timezone.now()
     job.save(update_fields=["delivery_status", "delivery_status_updated_at"])
     if next_status == "DELIVERED":
         job.status = FreightJob.Status.COMPLETED
         job.save(update_fields=["status"])
+    order = job.order
+    if next_status == "PICKED_UP":
+        if order.status == OrderStatus.ACCEPTED:
+            order.set_status(OrderStatus.PROCESSING)
+        if order.status in (OrderStatus.PROCESSING, OrderStatus.CONFIRMED):
+            order.set_status(OrderStatus.SHIPPED)
+    elif next_status == "DELIVERED" and order.status == OrderStatus.SHIPPED:
+        order.set_status(OrderStatus.DELIVERED)
+        order.delivered_at = timezone.now()
+        order.save(update_fields=["delivered_at", "updated_at"])
+        # A driver earns the agreed payable only after the buyer fee is verified
+        # and delivery is complete. The wallet reference makes retries safe.
+        from .financial_models import DeliveryFeePayment
+        from .financial_services import credit_driver_for_verified_delivery
+        payment = DeliveryFeePayment.objects.filter(
+            agreement__order=order, status=DeliveryFeePayment.Status.VERIFIED
+        ).first()
+        if payment is not None:
+            credit_driver_for_verified_delivery(payment, actor=driver)
     return job, next_status

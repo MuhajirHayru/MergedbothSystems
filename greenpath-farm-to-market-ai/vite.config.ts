@@ -28,7 +28,7 @@ export default defineConfig(() => {
       // SameSite=Lax cookie, which browsers only attach to same-origin calls.
       proxy: {
         '/api': {
-          target: 'http://127.0.0.1:8000',
+          target: 'http://127.0.0.1:8004',
           changeOrigin: true,
         },
       },

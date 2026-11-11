@@ -27,9 +27,13 @@ from users.permissions import IsAuthenticatedRole
 
 from .freight_models import FreightBid, FreightJob
 from .freight_services import assign_bid, place_bid, withdraw_bid
+from .models import OrderShipmentDetails
 
 
 def _job_row(job):
+    shipment = OrderShipmentDetails.objects.filter(order_id=job.order_id).only(
+        "delivery_fee_proposal_amount"
+    ).first()
     bids = [
         {
             "id": str(b.pk),
@@ -56,6 +60,7 @@ def _job_row(job):
         "status": job.status,
         "assigned_driver": job.assigned_driver.full_name if job.assigned_driver else None,
         "assigned_fee": str(job.assigned_fee) if job.assigned_fee else None,
+        "buyer_fee_limit": str(shipment.delivery_fee_proposal_amount) if shipment and shipment.delivery_fee_proposal_amount else None,
         "exact_pickup_address": job.exact_pickup_address,
         "exact_destination_address": job.exact_destination_destination if hasattr(job, "exact_destination_destination") else job.exact_destination_address,
         "published_at": job.published_at.isoformat(),
@@ -261,7 +266,7 @@ class DriverAdvanceDeliveryView(APIView):
     def post(self, request, pk):
         job, new_status = advance_delivery_status(driver=request.user, job_id=pk)
         notify(
-            user_ids=[job.order.buyer_id],
+            user_ids=[job.order.buyer.pk],
             type="SYSTEM",
             message=f"Delivery {job.order.reference}: {DELIVERY_LABELS.get(new_status, new_status)}",
             actor=request.user,
