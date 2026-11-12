@@ -12,8 +12,9 @@ import { useApp } from '../../context/AppContext';
 const heroImg = '/images/lovable-hero-farm.jpg';
 
 export const LandingPage: React.FC = () => {
-  const { setActiveView } = useApp();
+  const { platformConfig, setActiveView } = useApp();
   const navigate = useNavigate();
+  const content = platformConfig?.websiteContent;
   const go = (view: 'login' | 'register') => {
     setActiveView(view);
     navigate(`/${view}`);
@@ -63,7 +64,11 @@ export const LandingPage: React.FC = () => {
             <a href="#how" onClick={scrollTo('how')} className="opacity-80 hover:opacity-100">How it works</a>
             <a href="#why" onClick={scrollTo('why')} className="opacity-80 hover:opacity-100">Why us</a>
           </div>
-          <a href="#join" onClick={scrollTo('join')} className="rounded-full lp-accent-bg px-5 py-2.5 text-sm font-semibold lp-accent-fg transition hover:brightness-105">Get started</a>
+          <div className="flex items-center gap-2.5 text-[14px] font-bold">
+            <button onClick={() => go('login')} className="rounded-full border border-white/40 px-[19px] py-3 transition hover:bg-white/10">Login</button>
+            <button onClick={() => go('register')} className="rounded-full lp-accent-bg px-[19px] py-3 lp-accent-fg transition hover:brightness-105">Register</button>
+          </div>
+          <a href="#join" onClick={scrollTo('join')} className="hidden rounded-full border border-white/40 px-5 py-2.5 text-sm font-semibold transition hover:bg-white/10 md:block">Get started</a>
         </nav>
       </header>
 
@@ -80,7 +85,7 @@ export const LandingPage: React.FC = () => {
             Green Path connects farmers, wholesalers, retailers and drivers on one trusted platform — with escrow-protected payments and reliable freight.
           </p>
           <div className="lp-rise-4 mt-10 flex flex-wrap gap-4">
-            <a href="#join" onClick={scrollTo('join')} className="rounded-full lp-accent-bg px-7 py-3.5 font-semibold lp-accent-fg transition hover:brightness-105">Join the marketplace</a>
+            <a href="/register" onClick={goRegister} className="rounded-full lp-accent-bg px-7 py-3.5 font-semibold lp-accent-fg transition hover:brightness-105">Register — join the marketplace</a>
             <a href="#how" onClick={scrollTo('how')} className="rounded-full border border-white/40 px-7 py-3.5 font-semibold transition hover:bg-white/10">See how it works</a>
           </div>
         </div>
@@ -168,11 +173,60 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Footer */}
+      {/* Footer — contacts + support links */}
       <footer className="border-t lp-border">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-8 text-sm lp-muted-text md:flex-row">
-          <span className="lp-display font-bold text-lp-foreground">Green Path Systems</span>
-          <span>© {new Date().getFullYear()} Green Path Systems. All rights reserved.</span>
+        <div className="mx-auto max-w-7xl px-6 py-12">
+          <div className="grid gap-10 md:grid-cols-3">
+            <div>
+              <div className="flex items-center gap-3 text-[18px] font-extrabold tracking-[-.04em]">
+                <span className="grid h-[34px] w-[34px] place-items-center rounded-full bg-[#17633c] text-[18px] text-white">✦</span>
+                <span>GreenPath</span>
+              </div>
+              <p className="mt-3 max-w-[300px] text-[13px] leading-[1.6] lp-muted-text">
+                Farm-to-market, together — escrow-protected trading across Ethiopia.
+              </p>
+            </div>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[.14em] text-[#477c54]">Contact</div>
+              <ul className="mt-3 space-y-2 text-[13px] lp-muted-text">
+                <li>
+                  <a href={`mailto:${content?.contactEmail || 'support@greenpath.et'}`} className="hover:underline">
+                    {content?.contactEmail || 'support@greenpath.et'}
+                  </a>
+                </li>
+                <li>
+                  <a href={`tel:${String(content?.contactPhone || '+251900000000').replace(/\s/g, '')}`} className="hover:underline">
+                    {content?.contactPhone || '+251 900 000 000'}
+                  </a>
+                </li>
+                <li>{content?.contactOffice || 'Addis Ababa, Ethiopia'}</li>
+              </ul>
+            </div>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[.14em] text-[#477c54]">Support</div>
+              <ul className="mt-3 space-y-2 text-[13px] lp-muted-text">
+                <li>
+                  <a href="/support" onClick={(e) => { e.preventDefault(); setActiveView('support_management'); navigate('/support'); }} className="hover:underline">
+                    Get Help &amp; Support
+                  </a>
+                </li>
+                <li>
+                  <a href="/login" onClick={(e) => { e.preventDefault(); go('login'); }} className="hover:underline">
+                    Login to your account
+                  </a>
+                </li>
+                <li>
+                  <a href="/register" onClick={(e) => { e.preventDefault(); go('register'); }} className="hover:underline">
+                    Register as a member
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div className="mt-10 flex flex-col justify-between gap-3 border-t pt-6 text-sm lp-muted-text md:flex-row">
+            <span className="lp-display font-bold text-lp-foreground">Green Path Systems</span>
+            <span>© {new Date().getFullYear()} Green Path Systems. All rights reserved.</span>
+          </div>
         </div>
       </footer>
     </div>
